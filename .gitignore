@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# App compilada (se genera con npm run dist:mac)
+Chubasco.app/

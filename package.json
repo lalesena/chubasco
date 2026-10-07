@@ -1,0 +1,116 @@
+{
+  "name": "chubasco",
+  "productName": "Chubasco",
+  "version": "1.0.0",
+  "description": "Alarma de lluvia de escritorio: radar en tiempo real, previsión a corto plazo y avisos cuando se acerca la lluvia.",
+  "main": "src/main/main.js",
+  "author": "lalesena",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lalesena/chubasco.git"
+  },
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . --demo",
+    "test": "node --test test/*.test.js",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "build:web": "node web/build.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "^5.2.0",
+    "@maplibre/maplibre-gl-leaflet": "^0.1.4",
+    "electron-updater": "^6.8.9",
+    "leaflet": "^1.9.4",
+    "maplibre-gl": "^5.24.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2"
+  },
+  "build": {
+    "appId": "io.github.lalesena.chubasco",
+    "productName": "Chubasco",
+    "copyright": "© 2026 lalesena",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.weather",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "NSUserNotificationAlertStyle": "alert",
+        "NSLocationUsageDescription": "Chubasco usa tu ubicación para vigilar la lluvia allí donde estés (ubicación «Aquí»).",
+        "NSLocationWhenInUseUsageDescription": "Chubasco usa tu ubicación para vigilar la lluvia allí donde estés (ubicación «Aquí»)."
+      }
+    },
+    "dmg": {
+      "title": "Chubasco ${version}"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Chubasco",
+      "artifactName": "Chubasco-Setup-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "lalesena",
+        "repo": "chubasco",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://*.rainviewer.com; connect-src https://tiles.openfreemap.org; worker-src blob:; child-src blob:; object-src 'none'; base-uri 'none'">
+  <title>Chubasco</title>
+  <link rel="stylesheet" href="../../node_modules/@fontsource-variable/archivo/wdth.css">
+  <link rel="stylesheet" href="../../node_modules/leaflet/dist/leaflet.css">
+  <link rel="stylesheet" href="../../node_modules/maplibre-gl/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar" aria-label="Estado">
+      <div class="drag" aria-hidden="true"></div>
+
+      <header class="side-head">
+        <button id="loc-button" class="loc-button" aria-haspopup="true" aria-expanded="false">
+          <span id="loc-name" class="loc-name">—</span>
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="embed-button" class="icon-btn" data-i18n-title="web.embed" title="Insertar en tu web" data-only="web">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6 3 10l4 4M13 6l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="settings-button" class="icon-btn" data-i18n-title="ui.settings" title="Ajustes">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 5.5h8.5M15.5 5.5H17M3 10h2.5M9.5 10H17M3 14.5h9M16 14.5h1"/><circle cx="13.5" cy="5.5" r="2"/><circle cx="7.5" cy="10" r="2"/><circle cx="14" cy="14.5" r="2"/></g></svg>
+        </button>
+      </header>
+
+      <div id="loc-popover" class="popover" hidden>
+        <ul id="loc-list" class="loc-list"></ul>
+        <div class="add-block">
+          <label class="field-label" for="search-input" data-i18n="ui.addLocation">Añadir ubicación</label>
+          <div class="search-row">
+            <input id="search-input" type="search" autocomplete="off" spellcheck="false" data-i18n-placeholder="ui.searchPlaceholder">
+          </div>
+          <ul id="search-results" class="results"></ul>
+          <button id="here-button" class="link-btn" data-i18n="ui.followHere">Seguir mi ubicación actual</button>
+          <button id="ip-button" class="link-btn" data-i18n="ui.useIp" data-only="desktop">Usar mi ubicación aproximada</button>
+          <p class="hint" data-i18n="ui.rightClickHint">También puedes hacer clic derecho en el mapa.</p>
+        </div>
+      </div>
+
+      <div id="side-scroll" class="side-scroll">
+        <section id="onboarding" class="onboarding" hidden>
+          <h1 data-i18n="ui.onboardTitle">¿Dónde vigilamos la lluvia?</h1>
+          <p data-i18n="ui.onboardText"></p>
+          <input id="onboard-search" type="search" autocomplete="off" spellcheck="false" data-i18n-placeholder="ui.searchPlaceholder">
+          <ul id="onboard-results" class="results"></ul>
+          <div class="onboard-actions">
+            <button id="onboard-here" class="btn" data-i18n="ui.followHere">Seguir mi ubicación actual</button>
+            <button id="onboard-ip" class="btn ghost" data-i18n="ui.useIp" data-only="desktop">Usar mi ubicación aproximada</button>
+          </div>
+        </section>
+
+        <section id="status" class="status" aria-live="polite">
+          <div id="status-meter" class="meter" aria-hidden="true"></div>
+          <h1 id="headline" class="headline">—</h1>
+          <p id="detail" class="detail"></p>
+          <p id="outlook" class="outlook"></p>
+          <p id="lightning-line" class="lightning-line"></p>
+          <p id="severe-line" class="severe-line"></p>
+          <div id="dry-watch" class="dry-watch" hidden data-only="desktop">
+            <span id="dry-watch-off">
+              <button id="dry-watch-on" class="btn small" data-i18n="ui.dryWatch">Avísame cuando pare</button>
+              <span data-i18n="ui.dryWatch.pre">con al menos</span>
+              <select id="dry-watch-min"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">1 h</option></select>
+              <span data-i18n="ui.dryWatch.post">secos</span>
+            </span>
+            <span id="dry-watch-active" hidden><span id="dry-watch-text"></span> <button id="dry-watch-cancel" class="link-btn small" data-i18n="ui.dryWatch.cancel">Cancelar</button></span>
+          </div>
+          <p class="meta">
+            <span id="radar-meta"></span>
+            <button id="refresh-button" class="mini-btn" data-i18n-title="ui.checkNow" title="Comprobar ahora">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 6.2A5.4 5.4 0 1 0 13.4 9.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13.6 2.6v3.8H9.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </p>
+        </section>
+
+        <section class="block" id="chart2h-block">
+          <div class="block-head">
+            <h2 data-i18n="ui.next2h">Próximas 2 horas</h2>
+            <div class="keys">
+              <span class="key key-radar" data-i18n="ui.radarNowcast">Intensidad prevista</span>
+              <span class="key key-prob" data-i18n="ui.probability">Probabilidad</span>
+            </div>
+          </div>
+          <div id="chart2h" class="chart"></div>
+          <p id="chart2h-note" class="hint"></p>
+        </section>
+
+        <section class="block" id="chart24h-block">
+          <div class="block-head">
+            <h2 data-i18n="ui.next24h">Próximas 24 horas</h2>
+            <span id="current-weather" class="current"></span>
+          </div>
+          <div id="chart24h" class="chart"></div>
+        </section>
+
+        <details class="block alarm" id="alarm-block" open>
+          <summary><h2 data-i18n="ui.alarm">Alarma</h2><span id="alarm-summary" class="summary-text"></span></summary>
+          <label class="switch-row">
+            <input type="checkbox" id="al-enabled">
+            <span data-i18n="ui.alarmOn">Avisarme para esta ubicación</span>
+          </label>
+          <div class="field">
+            <div class="field-top">
+              <label for="al-radius" data-i18n="ui.radius">Radio de vigilancia</label>
+              <output id="al-radius-out"></output>
+            </div>
+            <input type="range" id="al-radius" min="5" max="100" step="5">
+          </div>
+          <div class="field">
+            <label for="al-level" data-i18n="ui.minLevel">Intensidad mínima</label>
+            <select id="al-level">
+              <option value="any" data-i18n="ui.level.any"></option>
+              <option value="light" data-i18n="ui.level.light"></option>
+              <option value="moderate" data-i18n="ui.level.moderate"></option>
+              <option value="heavy" data-i18n="ui.level.heavy"></option>
+            </select>
+          </div>
+          <fieldset class="checks">
+            <legend data-i18n="ui.alertTypes">Avisar cuando</legend>
+            <label><input type="checkbox" id="al-inRadius"> <span data-i18n="ui.al.inRadius"></span></label>
+            <label class="inline-select"><input type="checkbox" id="al-imminent"> <span data-i18n="ui.al.imminent"></span>
+              <select id="al-imminentMin">
+                <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option>
+              </select></label>
+            <label class="inline-select sub"><span data-i18n="ui.minProb"></span>
+              <select id="al-minProb">
+                <option value="0.3" data-i18n="ui.minProb.30"></option><option value="0.5" data-i18n="ui.minProb.50"></option><option value="0.7" data-i18n="ui.minProb.70"></option>
+              </select></label>
+            <label><input type="checkbox" id="al-atLocation"> <span data-i18n="ui.al.atLocation"></span></label>
+            <label><input type="checkbox" id="al-ended"> <span data-i18n="ui.al.ended"></span></label>
+            <label><input type="checkbox" id="al-model"> <span data-i18n="ui.al.model"></span> <small data-i18n="ui.al.modelHint"></small></label>
+            <label class="inline-select"><input type="checkbox" id="al-lightning"> <span data-i18n="ui.al.lightning"></span>
+              <select id="al-lightningKm">
+                <option value="10">10 km</option><option value="20">20 km</option><option value="30">30 km</option><option value="50">50 km</option>
+              </select> <small data-i18n="ui.al.lightningHint"></small></label>
+            <label><input type="checkbox" id="al-severe"> <span data-i18n="ui.al.severe"></span> <small data-i18n="ui.al.severeHint"></small></label>
+          </fieldset>
+          <div class="row-actions">
+            <button id="test-alert" class="btn" data-i18n="ui.testAlert">Probar aviso</button>
+            <button id="rename-loc" class="btn ghost" data-i18n="ui.rename">Renombrar</button>
+            <button id="remove-loc" class="btn ghost danger" data-i18n="ui.remove">Eliminar</button>
+          </div>
+          <div class="web-alerts" data-only="web">
+            <p class="hint" data-i18n="web.alertsHint"></p>
+            <p class="hint"><button type="button" id="web-alerts-allow" class="link-btn small" data-i18n="web.alertsAllow"></button><span id="web-alerts-state"></span></p>
+          </div>
+        </details>
+
+        <details class="block accuracy" id="accuracy-block" data-only="desktop">
+          <summary><h2 data-i18n="ui.accuracy">Precisión</h2><span id="accuracy-summary" class="summary-text"></span></summary>
+          <div id="accuracy"></div>
+        </details>
+
+        <section class="block" id="history-block">
+          <div class="block-head">
+            <h2 data-i18n="ui.history">Avisos recientes</h2>
+            <button id="clear-history" class="link-btn small" data-i18n="ui.clearHistory">Borrar</button>
+          </div>
+          <ol id="history" class="history"></ol>
+        </section>
+      </div>
+    </aside>
+
+    <main id="map-wrap">
+      <div id="map" tabindex="0"></div>
+      <div id="banner" class="banner" hidden>
+        <span id="banner-text"></span>
+        <button id="banner-action" class="link-btn"></button>
+      </div>
+
+      <div class="map-tools">
+        <button id="layers-button" class="tool-btn" data-i18n-title="ui.layers" title="Capas" aria-expanded="false">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 3 7 3.8-7 3.8-7-3.8L10 3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m3 10.2 7 3.8 7-3.8M3 13.6l7 3.8 7-3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </button>
+        <div id="layers-panel" class="popover layers" hidden>
+          <fieldset>
+            <legend data-i18n="ui.baseMap">Mapa base</legend>
+            <label><input type="radio" name="base" value="auto"> <span data-i18n="ui.base.auto"></span></label>
+            <label><input type="radio" name="base" value="light"> <span data-i18n="ui.base.light"></span></label>
+            <label><input type="radio" name="base" value="dark"> <span data-i18n="ui.base.dark"></span></label>
+            <label><input type="radio" name="base" value="streets"> <span data-i18n="ui.base.streets"></span></label>
+          </fieldset>
+          <fieldset>
+            <legend data-i18n="ui.radar">Radar</legend>
+            <div class="field">
+              <div class="field-top"><label for="opacity" data-i18n="ui.opacity">Opacidad</label><output id="opacity-out"></output></div>
+              <input type="range" id="opacity" min="0.3" max="1" step="0.05">
+            </div>
+            <label><input type="checkbox" id="opt-smooth"> <span data-i18n="ui.smooth"></span></label>
+            <label><input type="checkbox" id="opt-snow"> <span data-i18n="ui.snow"></span></label>
+            <label><input type="checkbox" id="opt-future"> <span data-i18n="ui.future"></span></label>
+            <label><input type="checkbox" id="opt-coverage"> <span data-i18n="ui.coverage"></span></label>
+            <label><input type="checkbox" id="opt-lightning"> <span data-i18n="ui.lightningLayer"></span></label>
+          </fieldset>
+        </div>
+      </div>
+
+      <div id="ctx-menu" class="ctx-menu" hidden role="menu"></div>
+
+      <div class="timeline" id="timeline">
+        <div class="tl-buttons">
+          <button id="tl-prev" class="tl-btn" data-i18n-title="ui.prev"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button id="tl-play" class="tl-btn play" data-i18n-title="ui.play"><svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8 5 3.2Z" fill="currentColor"/></svg><svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.4v10H4.5zM9.1 3h2.4v10H9.1z" fill="currentColor"/></svg></button>
+          <button id="tl-next" class="tl-btn" data-i18n-title="ui.next"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="tl-main">
+          <div class="tl-label"><span id="tl-time" class="tl-time">--:--</span> <span id="tl-rel" class="tl-rel"></span> <span id="tl-loading" class="tl-loading"></span></div>
+          <div id="tl-track" class="tl-track" role="listbox"></div>
+        </div>
+        <div id="legend" class="legend" aria-label="Leyenda"></div>
+      </div>
+      <div id="attribution" class="attribution"></div>
+    </main>
+  </div>
+
+  <dialog id="settings-dialog" class="dialog">
+    <form method="dialog" id="settings-form">
+      <header class="dialog-head">
+        <h2 data-i18n="ui.settings">Ajustes</h2>
+        <button value="close" class="icon-btn" data-i18n-title="ui.close" title="Cerrar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </header>
+      <div class="grid-form">
+        <label for="set-language" data-i18n="set.language">Idioma</label>
+        <select id="set-language">
+          <option value="auto" data-i18n="set.lang.auto"></option>
+          <option value="es">Español</option>
+          <option value="en">English</option>
+        </select>
+
+        <label for="set-theme" data-i18n="set.theme">Tema</label>
+        <select id="set-theme">
+          <option value="auto" data-i18n="set.theme.auto"></option>
+          <option value="light" data-i18n="set.theme.light"></option>
+          <option value="dark" data-i18n="set.theme.dark"></option>
+        </select>
+
+        <label for="set-rate" data-i18n="set.rateUnit">Intensidad</label>
+        <select id="set-rate"><option value="mm">mm/h</option><option value="in">in/h</option></select>
+
+        <label for="set-dist" data-i18n="set.distUnit">Distancia</label>
+        <select id="set-dist"><option value="km">km · km/h · °C</option><option value="mi">mi · mph · °F</option></select>
+
+        <label for="set-interval" data-i18n="set.interval" data-only="desktop">Comprobar el radar cada</label>
+        <select id="set-interval" data-only="desktop"><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option></select>
+        <span data-only="desktop"></span><p class="hint" data-i18n="set.intervalHint" data-only="desktop"></p>
+
+        <label for="set-summary-time" data-i18n="set.summary" data-only="desktop">Resumen diario a las</label>
+        <div class="quiet" data-only="desktop">
+          <input type="checkbox" id="set-summary" aria-labelledby="summary-l">
+          <input type="time" id="set-summary-time">
+        </div>
+        <span id="summary-l" data-only="desktop"></span><p class="hint" data-i18n="set.summaryHint" data-only="desktop"></p>
+
+        <span class="label-like" data-i18n="set.widget" data-only="desktop">Widget de escritorio</span>
+        <div class="quiet" data-only="desktop">
+          <label class="inline-check"><input type="checkbox" id="set-widget"> <span data-i18n="set.widget.show"></span></label>
+          <select id="set-widget-size" class="auto" data-i18n-title="widget.size">
+            <option value="small" data-i18n="widget.small"></option>
+            <option value="medium" data-i18n="widget.medium"></option>
+            <option value="large" data-i18n="widget.large"></option>
+          </select>
+          <label class="inline-check"><input type="checkbox" id="set-widget-top"> <span data-i18n="widget.onTop"></span></label>
+        </div>
+        <span data-only="desktop"></span><p class="hint" data-i18n="set.widgetHint" data-only="desktop"></p>
+
+        <span class="label-like" data-i18n="set.push" data-only="desktop">Avisos en el móvil</span>
+        <label class="inline-check" data-only="desktop"><input type="checkbox" id="set-push"> <span data-i18n="set.push.enable"></span></label>
+        <div id="push-details" class="push-details" hidden data-only="desktop">
+          <p class="hint" data-i18n="set.push.how"></p>
+          <div class="push-topic">
+            <input id="push-topic" type="text" readonly spellcheck="false">
+            <button type="button" id="push-copy" class="btn small" data-i18n="set.push.copy">Copiar</button>
+            <button type="button" id="push-test" class="btn small" data-i18n="set.push.test">Enviar prueba</button>
+          </div>
+          <p class="hint" data-i18n="set.push.privacy"></p>
+        </div>
+
+        <span class="label-like" data-i18n="set.quiet" data-only="desktop">Horas de silencio</span>
+        <div class="quiet" data-only="desktop">
+          <input type="checkbox" id="set-quiet" aria-labelledby="quiet-l">
+          <span id="quiet-l" data-i18n="set.from">de</span> <input type="time" id="set-quiet-start">
+          <span data-i18n="set.to">a</span> <input type="time" id="set-quiet-end">
+        </div>
+        <span data-only="desktop"></span><p class="hint" data-i18n="set.quietHint" data-only="desktop"></p>
+      </div>
+      <div class="checks-col" data-only="desktop">
+        <label><input type="checkbox" id="set-sound"> <span data-i18n="set.sound"></span></label>
+        <label><input type="checkbox" id="set-login"> <span data-i18n="set.login"></span></label>
+        <label><input type="checkbox" id="set-hidden"> <span data-i18n="set.startHidden"></span></label>
+        <label><input type="checkbox" id="set-tray"> <span data-i18n="set.closeToTray"></span></label>
+      </div>
+      <section class="commutes" data-only="desktop">
+        <h3 data-i18n="set.commutes">Trayectos</h3>
+        <p class="hint" data-i18n="set.commutesHint"></p>
+        <ul id="commute-list" class="commute-list"></ul>
+        <div id="commute-form" class="commute-form">
+          <select id="cm-from" data-i18n-title="set.cm.from"></select>
+          <span aria-hidden="true">→</span>
+          <select id="cm-to" data-i18n-title="set.cm.to"></select>
+          <input type="time" id="cm-time" value="08:15" data-i18n-title="set.cm.time">
+          <span id="cm-days" class="cm-days"></span>
+          <select id="cm-dur" data-i18n-title="set.cm.duration">
+            <option value="15">15 min</option><option value="30" selected>30 min</option><option value="45">45 min</option><option value="60">1 h</option><option value="90">1 h 30</option>
+          </select>
+          <button type="button" id="cm-add" class="btn small" data-i18n="set.cm.add">Añadir</button>
+        </div>
+        <p id="commute-need" class="hint" data-i18n="set.commutesNeed" hidden></p>
+      </section>
+      <section class="about">
+        <h3 data-i18n="set.sources">Datos</h3>
+        <p data-i18n="set.sourcesText"></p>
+        <p class="links">
+          <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a>
+          <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a>
+          <a href="https://www.eumetsat.int/" target="_blank">EUMETSAT</a>
+          <a href="https://ntfy.sh/" target="_blank" data-only="desktop">ntfy</a>
+          <a href="https://openfreemap.org/" target="_blank">OpenFreeMap</a>
+          <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>
+        </p>
+        <p class="links" data-only="web">
+          <a href="privacidad.html" target="_blank" data-i18n="web.privacy">Privacidad</a>
+          <a id="web-download" href="#" target="_blank" data-i18n="web.download" hidden>Descargar la app</a>
+        </p>
+        <h3 data-i18n="set.shortcuts">Atajos</h3>
+        <p data-i18n="set.shortcutsText"></p>
+        <p class="version" id="version"></p>
+      </section>
+    </form>
+  </dialog>
+
+  <dialog id="embed-dialog" class="dialog embed-dialog" data-only="web">
+    <form method="dialog">
+      <header class="dialog-head">
+        <h2 data-i18n="web.embed">Insertar en tu web</h2>
+        <button value="close" class="icon-btn" data-i18n-title="ui.close" title="Cerrar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </header>
+      <p class="hint" data-i18n="web.embedText"></p>
+      <p id="em-need" class="acc-note" data-i18n="web.embedNeedLoc" hidden></p>
+      <div id="em-body">
+        <div class="grid-form em-form">
+          <label for="em-loc" data-i18n="widget.location">Ubicación</label>
+          <select id="em-loc"></select>
+          <label for="em-size" data-i18n="widget.size">Tamaño</label>
+          <select id="em-size">
+            <option value="small" data-i18n="widget.small"></option>
+            <option value="medium" data-i18n="widget.medium" selected></option>
+            <option value="large" data-i18n="widget.large"></option>
+          </select>
+          <label for="em-theme" data-i18n="set.theme">Tema</label>
+          <select id="em-theme">
+            <option value="auto" data-i18n="set.theme.auto"></option>
+            <option value="light" data-i18n="set.theme.light"></option>
+            <option value="dark" data-i18n="set.theme.dark"></option>
+          </select>
+          <label for="em-lang" data-i18n="set.language">Idioma</label>
+          <select id="em-lang">
+            <option value="auto" data-i18n="set.lang.auto"></option>
+            <option value="es">Español</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <h3 data-i18n="web.embedPreview">Vista previa</h3>
+        <div class="em-preview"><iframe id="em-frame" title="Chubasco"></iframe></div>
+        <h3 data-i18n="web.embedCode">Código</h3>
+        <div class="em-code">
+          <textarea id="em-code" readonly rows="4" spellcheck="false"></textarea>
+          <button type="button" id="em-copy" class="btn small" data-i18n="set.push.copy">Copiar</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="../../node_modules/leaflet/dist/leaflet.js"></script>
+  <script src="../../node_modules/maplibre-gl/dist/maplibre-gl.js"></script>
+  <script src="../../node_modules/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+  <script src="../shared/palette.js"></script>
+  <script src="../shared/i18n.js"></script>
+  <script src="../shared/forecast.js"></script>
+  <script src="../shared/describe.js"></script>
+  <script src="charts.js"></script>
+  <script src="map.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

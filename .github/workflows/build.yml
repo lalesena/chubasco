@@ -1,0 +1,79 @@
+name: Compilar, probar y publicar
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write   # para publicar las versiones (tags v*)
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac --arm64 --x64
+          - os: windows-latest
+            args: --win --x64 --arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # npm 11 no ejecuta solo el script de instalación de Electron.
+      - run: node node_modules/electron/install.js
+      - run: npm test
+
+      # Prueba de humo: abre la app en modo demostración, comprueba que
+      # arranca y guarda una captura de la ventana y del mini panel.
+      - name: Prueba de humo (demo)
+        # Informativa: si el equipo de GitHub no tiene pantalla, no bloquea la publicación.
+        continue-on-error: true
+        shell: bash
+        env:
+          CHUBASCO_SMOKE: '1'
+          CHUBASCO_SMOKE_MS: '25000'
+          CHUBASCO_SMOKE_JS_AT: '18000'
+          CHUBASCO_SMOKE_JS: "({ headline: document.getElementById('headline').textContent, error: document.body.innerText.includes('Error') })"
+        run: |
+          mkdir -p smoke
+          CHUBASCO_USERDATA="$PWD/smoke/ud" CHUBASCO_SMOKE_SHOT="$PWD/smoke/ventana.png" npx electron . --demo | tee smoke/salida.txt
+          CHUBASCO_USERDATA="$PWD/smoke/ud" CHUBASCO_SMOKE_MINI=1 CHUBASCO_SMOKE_SHOT="$PWD/smoke/mini.png" npx electron . --demo
+          grep -q '\[smoke\]' smoke/salida.txt
+          test -s smoke/ventana.png && test -s smoke/mini.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prueba-humo-${{ runner.os }}
+          path: smoke/*.png
+          if-no-files-found: warn
+
+      # Sin certificados se genera una build sin firmar (macOS la firma ad hoc).
+      # Para firmar: define CSC_LINK / CSC_KEY_PASSWORD (y APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
+      # APPLE_TEAM_ID para notarizar) como secretos del repositorio.
+      # Con un tag v* se publica la versión en GitHub Releases (de ahí se actualiza la app).
+      - name: Instaladores (y publicación si es un tag v*)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: npx electron-builder ${{ matrix.args }} --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        with:
+          name: chubasco-${{ runner.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+          if-no-files-found: ignore

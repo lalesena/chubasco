@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chubasco</title>
+  <link rel="stylesheet" href="../../node_modules/@fontsource-variable/archivo/wdth.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="widget">
+  <main id="w" class="w" data-size="medium" data-level="unknown">
+    <header class="w-head">
+      <span id="w-name" class="w-name"></span>
+      <span id="w-meta" class="w-meta"></span>
+      <button id="w-more" class="w-more" type="button" data-i18n-title="widget.more" title="Opciones del widget">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+      </button>
+    </header>
+    <div class="w-status">
+      <div id="w-meter" class="meter" aria-hidden="true"></div>
+      <h1 id="w-headline" class="w-headline">—</h1>
+      <p id="w-sub" class="w-sub"></p>
+      <div id="w-lines" class="w-lines"></div>
+    </div>
+    <div id="w-chart" class="chart w-chart"></div>
+    <section id="w-more-block" class="w-more-block">
+      <h2 id="w-more-title"></h2>
+      <ul id="w-others" class="w-others"></ul>
+      <div id="w-24h" class="chart w-24h"></div>
+    </section>
+    <footer id="w-credit" class="w-credit"></footer>
+  </main>
+
+  <script src="../shared/palette.js"></script>
+  <script src="../shared/i18n.js"></script>
+  <script src="../shared/forecast.js"></script>
+  <script src="../shared/describe.js"></script>
+  <script src="charts.js"></script>
+  <script src="widget.js"></script>
+</body>
+</html>

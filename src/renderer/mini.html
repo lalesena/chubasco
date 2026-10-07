@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Chubasco</title>
+  <link rel="stylesheet" href="../../node_modules/@fontsource-variable/archivo/wdth.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="mini">
+  <main id="mini">
+    <header class="mini-head">
+      <span id="m-name" class="loc-name"></span>
+      <select id="m-loc" class="mini-loc" data-i18n-title="ui.locations" hidden></select>
+      <button id="m-open" class="icon-btn" data-i18n-title="tray.open" title="Abrir Chubasco">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5h5.5V9M16.5 3.5 9.5 10.5"/><path d="M14.5 12v3.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1H8"/></g></svg>
+      </button>
+    </header>
+
+    <section id="m-status" class="status mini-status" aria-live="polite">
+      <div id="m-meter" class="meter" aria-hidden="true"></div>
+      <h1 id="m-headline" class="headline">—</h1>
+      <p id="m-detail" class="detail"></p>
+      <p id="m-outlook" class="outlook"></p>
+      <p id="m-lightning" class="lightning-line"></p>
+      <p id="m-severe" class="severe-line"></p>
+      <div id="m-dry" class="dry-watch" hidden>
+        <span id="m-dry-off">
+          <button id="m-dry-on" class="btn small" data-i18n="ui.dryWatch">Avísame cuando pare</button>
+          <span data-i18n="ui.dryWatch.pre">con al menos</span>
+          <select id="m-dry-min"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">1 h</option></select>
+          <span data-i18n="ui.dryWatch.post">secos</span>
+        </span>
+        <span id="m-dry-active" hidden><span id="m-dry-text"></span> <button id="m-dry-cancel" class="link-btn small" data-i18n="ui.dryWatch.cancel">Cancelar</button></span>
+      </div>
+    </section>
+
+    <section class="block mini-chart">
+      <div class="block-head">
+        <h2 data-i18n="ui.next2h">Próximas 2 horas</h2>
+        <div class="keys">
+          <span class="key key-radar" data-i18n="ui.radarNowcast">Intensidad prevista</span>
+          <span class="key key-prob" data-i18n="ui.probability">Probabilidad</span>
+        </div>
+      </div>
+      <div id="m-chart" class="chart"></div>
+    </section>
+
+    <ul id="m-others" class="mini-others"></ul>
+
+    <footer class="mini-foot">
+      <span id="m-meta" class="mini-meta"></span>
+      <button id="m-snooze" class="btn small ghost"></button>
+      <button id="m-check" class="btn small" data-i18n="tray.check">Comprobar ahora</button>
+    </footer>
+  </main>
+
+  <script src="../shared/palette.js"></script>
+  <script src="../shared/i18n.js"></script>
+  <script src="../shared/forecast.js"></script>
+  <script src="../shared/describe.js"></script>
+  <script src="charts.js"></script>
+  <script src="mini.js"></script>
+</body>
+</html>
