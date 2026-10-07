@@ -12,7 +12,7 @@
   },
   "private": true,
   "config": {
-    "operaProxy": ""
+    "operaProxy": "https://chubasco-opera.lalesena-48d.workers.dev"
   },
   "scripts": {
     "start": "electron .",
