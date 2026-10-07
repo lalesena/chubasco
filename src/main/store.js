@@ -31,6 +31,8 @@ const DEFAULTS = {
     units: { rate: 'mm', distance: 'km' },
     baseMap: 'auto',
     radarOpacity: 0.8,
+    // Radar: 'auto' = OPERA en Europa y RainViewer fuera; o una fuente fija.
+    radarSource: 'auto',
     smooth: true,
     showSnow: true,
     showCoverage: false,

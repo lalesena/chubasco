@@ -9,6 +9,7 @@
     appName: 'Chubasco',
     // Estado
     'status.unknown': 'Sin datos de radar',
+    'status.noCoverage': 'Sin radar en esta zona',
     'status.loading': 'Comprobando el radar…',
     'status.clear': 'Sin lluvia cerca',
     'status.clearSnow': 'Sin nieve cerca',
@@ -34,6 +35,7 @@
     'detail.radarError': 'No se pudo leer el radar: {err}',
     'detail.modelNow': 'El modelo indica {mm} mm ahora.',
     'detail.partialCoverage': 'Faltan datos de radar en parte de la zona.',
+    'detail.noCoverage': 'El radar europeo (EUMETNET OPERA) no llega hasta aquí.',
     'status.stale': 'Radar desactualizado',
     'detail.stale': 'El último fotograma del radar es de las {time}; los avisos de radar quedan en pausa hasta que llegue uno nuevo.',
     'detail.prob': 'probabilidad {p} %',
@@ -213,6 +215,9 @@
     'ui.radar': 'Radar',
     'ui.opacity': 'Opacidad',
     'ui.smooth': 'Suavizar bordes',
+    'ui.source': 'Fuente',
+    'ui.source.auto': 'Automática (OPERA en Europa)',
+    'map.processed': 'datos procesados',
     'ui.snow': 'Distinguir nieve',
     'ui.coverage': 'Mostrar cobertura del radar',
     'ui.future': 'Mostrar previsión extrapolada',
@@ -281,7 +286,7 @@
     'set.startHidden': 'Arrancar oculto en la bandeja',
     'set.closeToTray': 'Al cerrar la ventana, seguir vigilando en segundo plano',
     'set.sources': 'Datos',
-    'set.sourcesText': 'Radar: RainViewer (uso personal). Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
+    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0) en Europa y RainViewer (uso personal) fuera de ella. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
     'set.shortcuts': 'Atajos',
     'set.shortcutsText': 'Espacio: reproducir/pausar · ← →: fotograma · Fin: último · ⌘/Ctrl+,: ajustes',
     // Widget
@@ -313,12 +318,14 @@
     'web.alertsOn': 'Avisos del navegador activados.',
     'web.alertsBlocked': 'El navegador tiene bloqueados los avisos de esta página.',
     'web.privacy': 'Privacidad',
-    'web.sourcesText': 'Radar: RainViewer. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.'
+    'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; datos procesados para el mapa y los avisos). Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.',
+    'web.sourcesTextRv': 'Radar: RainViewer. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.'
   };
 
   const en = {
     appName: 'Chubasco',
     'status.unknown': 'No radar data',
+    'status.noCoverage': 'No radar in this area',
     'status.loading': 'Checking the radar…',
     'status.clear': 'No rain nearby',
     'status.clearSnow': 'No snow nearby',
@@ -346,6 +353,7 @@
     'detail.partialCoverage': 'Radar data is missing for part of the area.',
     'status.stale': 'Radar data is out of date',
     'detail.stale': 'The latest radar frame is from {time}; radar alerts are paused until a newer one arrives.',
+    'detail.noCoverage': 'The European radar (EUMETNET OPERA) does not reach this place.',
     'detail.prob': '{p}% chance',
     'detail.range': 'between {a} and {b} min',
     'detail.lightning': 'Lightning {dist} to the {dir} ({age} min ago)',
@@ -517,6 +525,9 @@
     'ui.radar': 'Radar',
     'ui.opacity': 'Opacity',
     'ui.smooth': 'Smooth edges',
+    'ui.source': 'Source',
+    'ui.source.auto': 'Automatic (OPERA in Europe)',
+    'map.processed': 'processed data',
     'ui.snow': 'Distinguish snow',
     'ui.coverage': 'Show radar coverage',
     'ui.future': 'Show extrapolated forecast',
@@ -584,7 +595,7 @@
     'set.startHidden': 'Start hidden in the tray',
     'set.closeToTray': 'Keep watching in the background when the window closes',
     'set.sources': 'Data',
-    'set.sourcesText': 'Radar: RainViewer (personal use). Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
+    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0) in Europe and RainViewer (personal use) elsewhere. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
     'set.shortcuts': 'Shortcuts',
     'set.shortcutsText': 'Space: play/pause · ← →: frame · End: latest · ⌘/Ctrl+,: settings',
     // Widget
@@ -616,7 +627,8 @@
     'web.alertsOn': 'Browser notifications are on.',
     'web.alertsBlocked': 'Notifications for this page are blocked in your browser.',
     'web.privacy': 'Privacy',
-    'web.sourcesText': 'Radar: RainViewer. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.'
+    'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; data processed for the map and alerts). Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.',
+    'web.sourcesTextRv': 'Radar: RainViewer. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.'
   };
 
   const DICTS = { es, en };

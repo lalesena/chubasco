@@ -238,6 +238,10 @@
       return { level: 'unknown', headline: t('status.loading'), detail: '', short: '' };
     }
 
+    if (r && !r.ok && r.code === 'noCoverage') {
+      return out({ level: 'unknown', headline: t('status.noCoverage'), detail: [t('detail.noCoverage'), modelLine()].filter(Boolean).join(' '), short: '' });
+    }
+
     if (!r || !r.ok) {
       const err = r && r.error ? t('detail.radarError', { err: r.error }) : '';
       return out({ level: 'unknown', headline: t('status.unknown'), detail: [err, modelLine()].filter(Boolean).join(' '), short: '' });

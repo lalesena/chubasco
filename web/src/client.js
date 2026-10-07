@@ -101,7 +101,8 @@
     embed,
     open: EMBED ? null : openPlace(),
     locale: navigator.language || 'es',
-    version: cfg.version || ''
+    version: cfg.version || '',
+    operaProxy: cfg.operaProxy || ''
   });
   if (EMBED) {
     document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'visibility', hidden: document.hidden }));
@@ -126,6 +127,7 @@
     follow: (pos) => call('follow', pos),
     verifyStats: (id) => call('verifyStats', id),
     lightningView: (q) => call('lightningView', q),
+    radarTile: (q) => call('radarTile', q),
     checkNow: () => call('checkNow'),
     async testAlert(id) {
       if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();

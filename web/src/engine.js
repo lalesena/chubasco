@@ -11,7 +11,8 @@
  * página abierta.
  */
 const { StoreCore } = require('../../src/main/store');
-const { RadarSource } = require('../../src/main/radar');
+const { RadarSource, RadarHub } = require('../../src/main/radar');
+const { OperaSource } = require('../../src/main/opera');
 const { WeatherSource } = require('../../src/main/weather');
 const { LightningSource } = require('../../src/main/lightning');
 const { Monitor } = require('../../src/main/monitor');
@@ -20,9 +21,12 @@ const I18N = require('../../src/shared/i18n');
 const LOCATE_EVERY_MS = 15 * 60000;
 const MAX_M = 20037508.34; // límite de Web Mercator
 
-// Sin cabeceras propias: una cabecera como User-Agent obligaría a una
-// consulta CORS previa que no todos los servicios aceptan.
-const webFetch = (url) => fetch(url, { signal: AbortSignal.timeout(20000) });
+// Sin cabeceras propias (una como User-Agent obligaría a una consulta CORS
+// previa que no todos los servicios aceptan), salvo Range para leer OPERA.
+const webFetch = (url, opts = {}) => {
+  const range = opts.headers && opts.headers.Range;
+  return fetch(url, { headers: range ? { Range: range } : undefined, signal: AbortSignal.timeout(20000) });
+};
 
 function readable(raw) {
   try { return !!new StoreCore(raw); } catch (e) { return false; }
@@ -51,9 +55,10 @@ function distanceKm(a, b) {
 /**
  * initial: datos guardados en el navegador; embed: configuración del widget
  * insertado (o null); open: lugar con el que se abrió la página (o null);
- * post: envía un mensaje a la página.
+ * operaProxy: dirección del intermediario de OPERA (o vacío); post: envía un
+ * mensaje a la página.
  */
-function createEngine({ initial, embed, open, locale, version, post }) {
+function createEngine({ initial, embed, open, locale, version, operaProxy, post }) {
   const log = () => {};
   const emit = (event, payload) => post({ type: 'event', event, payload });
   const store = new WebStore(embed ? null : initial, embed ? null : (data) => post({ type: 'persist', data }));
@@ -63,7 +68,11 @@ function createEngine({ initial, embed, open, locale, version, post }) {
   }
   const getT = () => I18N.make(I18N.resolveLang(store.settings.language, locale));
 
-  const radar = new RadarSource({ fetch: webFetch, userAgent: '', log });
+  // Radar: OPERA a través del intermediario (el almacén de EUMETNET no
+  // admite peticiones desde otras webs); sin intermediario, RainViewer.
+  const radar = operaProxy
+    ? new RadarHub({ opera: new OperaSource({ fetch: webFetch, baseUrl: operaProxy, log }), log })
+    : new RadarSource({ fetch: webFetch, userAgent: '', log });
   const weather = new WeatherSource({ fetch: webFetch, userAgent: '', log });
   const lightning = new LightningSource({ fetch: webFetch, userAgent: '', log });
   let last = { statuses: {}, frames: null, error: null };
@@ -160,6 +169,7 @@ function createEngine({ initial, embed, open, locale, version, post }) {
       store.setActive(id);
       broadcastLocations();
       if (!last.statuses[id]) monitor.checkNow(id);
+      monitor.syncMap();
     },
 
     search: (q) => weather.search(String(q || '').slice(0, 100), getT().lang),
@@ -199,6 +209,8 @@ function createEngine({ initial, embed, open, locale, version, post }) {
         return { points: [], error: e.message };
       }
     },
+
+    radarTile: (q) => (radar.viewTile ? radar.viewTile(q).catch(() => null) : null),
 
     checkNow() { monitor.checkNow(); },
 
@@ -264,7 +276,9 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
       engine.visibility(!!m.hidden);
     } else if (engine && m.type === 'call') {
       try {
-        self.postMessage({ type: 'reply', id: m.id, result: await engine.call(m.method, m.args || []) });
+        const result = await engine.call(m.method, m.args || []);
+        // Las teselas del radar se pasan sin copiarlas.
+        self.postMessage({ type: 'reply', id: m.id, result }, result instanceof Uint8Array ? [result.buffer] : []);
       } catch (err) {
         self.postMessage({ type: 'reply', id: m.id, error: String((err && err.message) || err) });
       }

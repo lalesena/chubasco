@@ -16,14 +16,22 @@ const OUT = path.join(ROOT, 'web', 'dist');
 const NM = path.join(ROOT, 'node_modules');
 const pkg = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8'));
 
+// Intermediario de OPERA (proxy/opera-worker.js en Cloudflare): package.json →
+// config.operaProxy. Sin él, la web sigue con RainViewer.
+const OPERA_PROXY = String((pkg.config && pkg.config.operaProxy) || process.env.CHUBASCO_OPERA_PROXY || '').replace(/\/+$/, '');
+if (OPERA_PROXY && !/^(https:\/\/[\w.-]+|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)(\/[\w./-]*)?$/.test(OPERA_PROXY)) {
+  throw new Error('config.operaProxy no es una dirección https válida');
+}
+const RADAR_HOSTS = OPERA_PROXY ? [new URL(OPERA_PROXY).origin] : ['https://api.rainviewer.com', 'https://tilecache.rainviewer.com'];
 const DATA_HOSTS = [
-  'https://api.rainviewer.com', 'https://tilecache.rainviewer.com',
+  ...RADAR_HOSTS,
   'https://api.open-meteo.com', 'https://geocoding-api.open-meteo.com',
   'https://nominatim.openstreetmap.org', 'https://view.eumetsat.int'
 ].join(' ');
+const RADAR_IMG = OPERA_PROXY ? '' : ' https://*.rainviewer.com';
 const CSP = {
   app: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; " +
-    `img-src 'self' data: blob: https://*.rainviewer.com; connect-src 'self' https://tiles.openfreemap.org ${DATA_HOSTS}; ` +
+    `img-src 'self' data: blob:${RADAR_IMG}; connect-src 'self' https://tiles.openfreemap.org ${DATA_HOSTS}; ` +
     "worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
   embed: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; " +
     `connect-src 'self' ${DATA_HOSTS}; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`
@@ -95,7 +103,8 @@ for (const f of ['charts', 'map', 'app', 'widget']) await copy(path.join(ROOT, `
 await copy(path.join(ROOT, 'src/renderer/styles.css'), 'styles.css');
 await copy(path.join(ROOT, 'web/src/client.js'), 'client.js');
 await copy(path.join(ROOT, 'web/src/web-ui.js'), 'js/web-ui.js');
-await write('config.js', `window.CHUBASCO_WEB = ${JSON.stringify({ version: pkg.version, releases: releasesUrl() })};\n`);
+await write('config.js', `window.CHUBASCO_WEB = ${JSON.stringify({ version: pkg.version, releases: releasesUrl(), operaProxy: OPERA_PROXY || null })};\n`);
+console.log(OPERA_PROXY ? `Radar: OPERA a través de ${OPERA_PROXY}` : 'Radar: RainViewer (falta config.operaProxy en package.json)');
 
 // 3. Páginas.
 const HEAD = `<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -118,6 +127,10 @@ await write('embed.html', embed);
 
 // 4. Páginas y ficheros fijos (privacidad, manifiesto, iconos).
 await fs.cp(path.join(ROOT, 'web', 'static'), OUT, { recursive: true });
+// Aviso de privacidad: solo la fuente de radar que se usa.
+const privacy = path.join(OUT, 'privacidad.html');
+const drop = OPERA_PROXY ? 'rainviewer' : 'opera';
+await fs.writeFile(privacy, (await fs.readFile(privacy, 'utf8')).replace(new RegExp(`\\n *<li data-radar="${drop}">.*</li>`, 'g'), '').replace(/ data-radar="\w+"/g, ''));
 await copy(path.join(ROOT, 'assets/icon-512.png'), 'icon-512.png');
 await write('.nojekyll', '');
 

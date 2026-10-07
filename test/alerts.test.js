@@ -120,6 +120,23 @@ test('dos comprobaciones sobre el mismo fotograma no cuentan como dos fotogramas
   assert.deepStrictEqual(ev(T0 + 30 * MIN, {}, T0 + 30 * MIN), ['ended']);
 });
 
+test('con fotogramas cada 5 min (OPERA), "ha parado" sigue pidiendo 10 min secos', () => {
+  const T0 = Date.UTC(2026, 9, 6, 12);
+  let state = freshState();
+  const ev = (min, opts) => {
+    const now = T0 + min * MIN;
+    const res = evaluate({ loc, status: { radar: radar({ ...opts, now }) }, state, now, settings, t });
+    state = res.state;
+    return res.alerts.map((a) => a.type);
+  };
+  ev(0, { at: 30 });
+  ev(5, { at: 30 });
+  ev(10, { at: 30 });
+  assert.deepStrictEqual(ev(15, {}), []);
+  assert.deepStrictEqual(ev(20, {}), [], 'dos fotogramas secos en 5 min no bastan');
+  assert.deepStrictEqual(ev(25, {}), ['ended']);
+});
+
 test('tras horas sin comprobar (suspensión) no llega un "ha dejado de llover" tardío', () => {
   const T0 = Date.UTC(2026, 9, 6, 12);
   const types = run([

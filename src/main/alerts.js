@@ -21,8 +21,10 @@ function freshState() {
     rainingSince: null,
     atLocationAlerted: false,
     wetFrames: 0,
+    firstWetFrame: null,
     lastWetFrame: null,
     dryFrames: 0,
+    firstDryFrame: null,
     lastDryFrame: null,
     lastEval: null,
     lightningArmed: true,
@@ -40,11 +42,17 @@ function resetEpisode(s) {
   s.rainingSince = null;
   s.atLocationAlerted = false;
   s.wetFrames = 0;
+  s.firstWetFrame = null;
   s.lastWetFrame = null;
   s.dryFrames = 0;
+  s.firstDryFrame = null;
   s.lastDryFrame = null;
   delete s.lastLevelIdx.inRadius;
 }
+
+// Tramo mínimo entre fotogramas (s): dos de RainViewer (cada 10 min) o tres
+// de OPERA (cada 5 min) cubren lo mismo.
+const SPAN_S = 9 * 60;
 
 function levelIdx(dbz) { return LEVEL_ORDER.indexOf(P.levelOf(dbz)); }
 
@@ -128,8 +136,13 @@ function evaluate({ loc, status, state, now, settings, t }) {
 
     if (raining) {
       s.dryFrames = 0;
+      s.firstDryFrame = null;
       s.lastDryFrame = null;
-      if (s.lastWetFrame !== r.frameTime) { s.wetFrames++; s.lastWetFrame = r.frameTime; }
+      if (s.lastWetFrame !== r.frameTime) {
+        s.wetFrames++;
+        if (s.firstWetFrame == null) s.firstWetFrame = r.frameTime;
+        s.lastWetFrame = r.frameTime;
+      }
       if (s.rainingSince === null) {
         // Empieza un episodio de lluvia en la ubicación.
         s.rainingSince = now;
@@ -152,19 +165,26 @@ function evaluate({ loc, status, state, now, settings, t }) {
       s.inRadiusArmed = false;
       s.imminentArmed = false;
     } else if (s.rainingSince !== null) {
-      // Se cuentan fotogramas de radar distintos, no comprobaciones.
-      if (s.lastDryFrame !== r.frameTime) { s.dryFrames++; s.lastDryFrame = r.frameTime; }
-      if (s.dryFrames >= 2) {
+      // Se cuentan fotogramas de radar distintos, no comprobaciones, y que
+      // abarquen unos 10 min sea cual sea la fuente.
+      if (s.lastDryFrame !== r.frameTime) {
+        s.dryFrames++;
+        if (s.firstDryFrame == null) s.firstDryFrame = r.frameTime;
+        s.lastDryFrame = r.frameTime;
+      }
+      if (s.dryFrames >= 2 && s.lastDryFrame - s.firstDryFrame >= SPAN_S) {
         const announced = a.atLocation ? s.atLocationAlerted : true;
-        const lasted = s.wetFrames >= 2 || now - s.rainingSince >= 10 * MIN;
+        const lasted = (s.wetFrames >= 2 && s.lastWetFrame - s.firstWetFrame >= SPAN_S) || now - s.rainingSince >= 10 * MIN;
         if (a.ended && announced && lasted && since('ended') > 60 * MIN) {
           fire('ended', t('notif.ended.title', { place }), t('notif.ended.body'));
         }
         s.rainingSince = null;
         s.atLocationAlerted = false;
         s.wetFrames = 0;
+        s.firstWetFrame = null;
         s.lastWetFrame = null;
         s.dryFrames = 0;
+        s.firstDryFrame = null;
         s.lastDryFrame = null;
         delete s.lastLevelIdx.inRadius;
       }

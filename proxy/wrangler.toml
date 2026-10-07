@@ -1,0 +1,4 @@
+# Despliegue con la línea de órdenes (opcional): npx wrangler deploy
+name = "chubasco-opera"
+main = "opera-worker.js"
+compatibility_date = "2026-10-01"

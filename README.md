@@ -9,6 +9,7 @@ App de escritorio para **macOS y Windows** que vigila el radar de lluvia en tus 
 | | |
 |---|---|
 | Vigilancia en segundo plano | Vive en la barra de menú (Mac) o en la bandeja (Windows) y avisa con la ventana cerrada. Un clic en el icono abre un **mini panel** con el estado, la ventana seca y la gráfica de 2 h. Puede abrirse al iniciar sesión |
+| Radar | **EUMETNET OPERA** en Europa: el compuesto de unos 150 radares nacionales, cada 5 minutos y a 1 km, con licencia libre (CC BY 4.0). Fuera de Europa, la app usa RainViewer |
 | Previsión del radar | Calcula **dirección, velocidad y hora de llegada** comparando los últimos fotogramas, con movimiento distinto por zonas. Da una **probabilidad** («lluvia en ~20 min, 70 %, entre 15 y 25») y muestra la previsión animada hasta +60 min sobre el mapa |
 | Previsión combinada | Una sola curva: radar al principio y modelo después, con paso gradual. De ahí sale la **ventana seca** («seco hasta las 22:30», «para hacia las 21:40; después, seco hasta…») |
 | Avisos | Lluvia en el radio, lluvia inminente («en ~15 min», con la probabilidad mínima que elijas), empieza y deja de llover, aviso del modelo, **rayos cerca**, **tormenta fuerte** (posible granizo), **resumen diario** y **«avísame cuando pare»** (cuando haya al menos 15, 30 o 60 min secos). Incluye anti-spam, horas de silencio y «posponer» desde la bandeja. Opcionalmente, también **en el móvil** con ntfy |
@@ -22,7 +23,7 @@ App de escritorio para **macOS y Windows** que vigila el radar de lluvia en tus 
 | Web | **Versión web** con la misma interfaz y el mismo análisis, que funciona también en el móvil |
 | Otros | Historial de avisos, eco más cercano y flecha de movimiento en el mapa, mm/h o in/h, km o mi, español e inglés, atajos de teclado, sin cuentas ni anuncios |
 
-Hay una limitación honesta. Con datos de radar gratuitos solo se distingue **lluvia y nieve**: granizo y lluvia helada no se distinguen (el aviso de tormenta fuerte es una señal, no un detector de granizo). Además, en zonas sin cobertura de radar el mapa queda vacío. Ahí conviene activar «El modelo prevea lluvia en la próxima hora».
+Hay una limitación honesta. El radar mide cuánta agua hay, no de qué tipo: OPERA no distingue la nieve, RainViewer sí (lluvia y nieve), y ninguno distingue el granizo ni la lluvia helada (el aviso de tormenta fuerte es una señal, no un detector de granizo). Además, en zonas sin cobertura de radar el mapa queda vacío; OPERA no incluye Italia, donde la app pasa sola a RainViewer. Ahí conviene activar «El modelo prevea lluvia en la próxima hora».
 
 ## Instalar y ejecutar
 
@@ -95,11 +96,24 @@ Lo que **no** tiene la web, respecto a la app: los avisos solo llegan con la pá
 
 **Publicarla gratis en GitHub Pages:** con el repositorio ya en GitHub (ver arriba), ve a *Settings → Pages → Source* y elige **GitHub Actions**. Desde entonces, `.github/workflows/pages.yml` la publica en cada push a `main`, en `https://lalesena.github.io/chubasco/`.
 
-**Antes de anunciarla en público, pregunta a RainViewer.** Su API gratuita es «para uso personal o educativo», y una web abierta con widgets insertados en otras páginas puede no entrar ahí. Escríbeles a support@rainviewer.com explicando el proyecto (gratis, sin anuncios, con atribución visible) y espera su respuesta. Open-Meteo, EUMETSAT y OpenFreeMap sí lo permiten con atribución, que la web y el widget ya muestran. La web incluye un aviso de privacidad (`privacidad.html`).
+La web incluye un aviso de privacidad (`privacidad.html`).
+
+### Radar OPERA en la web: intermediario gratuito en Cloudflare
+
+La web usa el radar europeo **EUMETNET OPERA**, cuya licencia (CC BY 4.0) permite publicarlo y compartirlo con atribución, que la web y el widget ya muestran. El almacén de EUMETNET, en cambio, no deja que otras webs lean sus ficheros desde el navegador (falta la cabecera CORS). Por eso la web los pide a través de un pequeño *Worker* de Cloudflare, [`proxy/opera-worker.js`](proxy/opera-worker.js). El Worker solo reenvía los ficheros del compuesto OPERA, trozo a trozo, y guarda cada trozo en la caché de Cloudflare. **Mientras no lo configures, la web sigue usando RainViewer.**
+
+1. Crea una cuenta gratuita en [Cloudflare](https://dash.cloudflare.com/sign-up).
+2. En *Workers & Pages*, crea un Worker con la plantilla «Hello World», llámalo `chubasco-opera` y despliégalo.
+3. Edita su código: sustituye todo por el contenido de `proxy/opera-worker.js` y vuelve a desplegar.
+4. Copia la dirección del Worker (`https://chubasco-opera.<tu-subdominio>.workers.dev`) en `package.json`, dentro de `"config": { "operaProxy": "…" }`, y haz push. La siguiente publicación de la web ya usa OPERA.
+
+Con la línea de órdenes, los pasos 2 y 3 son `cd proxy && npx wrangler login && npx wrangler deploy`.
+
+El plan gratuito de Workers admite 100 000 peticiones al día. Un visitante con el mapa abierto hace unas 100 al cargarlo y unas 15 cada 5 minutos, así que basta para un uso moderado. Si se queda corto, el plan de pago (5 $/mes) admite 10 millones al mes.
 
 ## Cómo funciona
 
-1. **Radar:** RainViewer publica un fotograma cada 10 minutos. Por cada ubicación se descargan los cuatro últimos alrededor del punto (tiles de 512 px a zoom 6, ≈1 km por píxel). Cada color se traduce a dBZ con la paleta oficial «Universal Blue» y de dBZ a mm/h con Marshall-Palmer.
+1. **Radar:** OPERA publica cada 5 minutos un GeoTIFF de toda Europa (1 km por píxel, proyección LAEA, reflectividad en dBZ), unos 4 minutos después de su hora. La app solo descarga, con peticiones por rangos de bytes, la cabecera y los mosaicos de 512 px que necesita, del nivel de detalle adecuado. Para cada ubicación lee los cuatro últimos fotogramas (cada 10 minutos, más el último de 5) alrededor del punto y pasa de dBZ a mm/h con Marshall-Palmer. Con RainViewer (fuera de Europa, solo en la app) lee tiles de 512 px a zoom 6 y traduce cada color a dBZ con su paleta «Universal Blue». En modo automático, una ubicación usa RainViewer si OPERA no ve bien su zona de alarma, y el mapa enseña la fuente de la ubicación activa.
 2. **Movimiento:** se compara cada par de fotogramas con correlación cruzada normalizada (primero en grueso y luego en fino, con precisión subpíxel). De ahí sale el vector de movimiento, con una confianza.
 3. **Nowcast:** se desplaza el último fotograma según ese vector para saber qué intensidad habrá en tu punto dentro de 5, 10… 120 minutos. De ahí salen la hora de llegada y la de fin. El cálculo descuenta la antigüedad del fotograma.
 4. **Avisos:** un motor con memoria por ubicación decide qué avisar sin repetirse. Se rearma tras 20 min sin lluvia y cuenta fotogramas de radar distintos, no comprobaciones. Ignora episodios antiguos tras una suspensión y pausa los avisos si el radar tiene más de 35 min.
@@ -111,7 +125,7 @@ Lo que **no** tiene la web, respecto a la app: los avisos solo llegan con la pá
 - **Movimiento por zonas:** además del vector global, se calcula el movimiento en una rejilla de 3×3 zonas, para que dos líneas de tormenta puedan moverse distinto. La previsión sigue trayectorias hacia atrás por ese campo.
 - **Probabilidad:** en vez de un único vector se prueban 25 variantes de velocidad y dirección, más dispersas cuanto más discrepan los fotogramas. La probabilidad de lluvia es el peso de las variantes que traen lluvia. Se tiene en cuenta si las tormentas se intensifican o se debilitan, con un límite.
 - **Radar + modelo:** hasta 20 min manda el radar; después pierde peso en 40–100 min según la confianza y entra el modelo. «Llega en X min» solo se dice cuando lo sostiene el radar.
-- **Avisos al momento:** cada minuto se mira si RainViewer ha publicado un fotograma nuevo y, si es así, se analiza enseguida.
+- **Avisos al momento:** cada minuto se mira si el radar ha publicado un fotograma nuevo y, si es así, se analiza enseguida.
 - **Autoevaluación:** cada previsión (a 10, 20, 30 y 60 min) se compara con lo que el radar ve después en el punto. La sección «Precisión» muestra la lluvia anticipada, las falsas alarmas, la mejora frente a «seguirá igual», el error de la hora de llegada y cuántos avisos de llegada acertaron. Cada caso se guarda en `verify-log.jsonl`.
 - **Calibración automática:** con 300 comparaciones y 30 casos con lluvia por plazo (todas las ubicaciones juntas), la app corrige sus probabilidades (si dice 70 % y llueve el 55 % de las veces, pasa a decir 55 %) y aprende cuánto fiarse del radar frente al modelo a cada plazo.
 - **Tormenta fuerte:** núcleo de radar de 55 dBZ o más cerca y rayos alrededor (o 60 dBZ aunque no haya datos de rayos).
@@ -119,7 +133,10 @@ Lo que **no** tiene la web, respecto a la app: los avisos solo llegan con la pá
 ```
 src/main/      proceso principal: ventana, bandeja, avisos, vigilancia
   analysis.js  proyección, rejillas, limpieza, movimiento por zonas, nowcast por conjunto
-  radar.js     RainViewer (con límite de peticiones y caché)
+  radar.js     análisis común, RainViewer y elección de fuente (RadarHub)
+  opera.js     radar EUMETNET OPERA: lectura por rangos, proyección LAEA, teselas del mapa
+  tiff.js      lector mínimo de GeoTIFF en mosaicos
+  mock-opera.js GeoTIFF sintético para la demo y las pruebas
   clutter.js   mapa de ecos fijos a largo plazo
   lightning.js rayos de Meteosat-12 (EUMETSAT)
   verify.js    autoevaluación y calibración automática
@@ -134,26 +151,28 @@ src/renderer/  interfaz (Leaflet + MapLibre, gráficas, ajustes), mini panel de 
 src/shared/    paleta, textos es/en, previsión combinada, frases de estado y lector de PNG (comunes a todo)
 web/           versión web: motor en un Web Worker, puente con la interfaz, generador de la web
   build.mjs    genera web/dist a partir de la interfaz de la app
+proxy/         intermediario de Cloudflare para leer OPERA desde la web
 test/          pruebas con datos sintéticos
 ```
 
 ## Datos y licencias
 
-- **Radar:** [RainViewer](https://www.rainviewer.com/api.html). Su API gratuita es solo para uso personal o educativo y admite 100 peticiones por minuto. Para respetar ese límite, el mapa descarga los fotogramas poco a poco (el más reciente primero) y no descarga nada mientras la ventana está oculta.
+- **Radar en Europa:** [EUMETNET OPERA](https://www.eumetnet.eu/), compuesto de reflectividad máxima, del [almacén de datos abiertos de EUMETNET](https://s3.waw3-1.cloudferro.com/openradar-24h/). Licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): se puede publicar y compartir, también con fines comerciales, citando la fuente y la licencia e indicando que los datos están transformados. El mapa lo indica así: «Radar EUMETNET OPERA (CC BY 4.0, datos procesados)».
+- **Radar fuera de Europa (solo la app):** [RainViewer](https://www.rainviewer.com/api.html). Su API gratuita es solo para uso personal o educativo y admite 100 peticiones por minuto. Para respetar ese límite, el mapa descarga los fotogramas poco a poco (el más reciente primero) y no descarga nada mientras la ventana está oculta. En *Capas → Fuente* se puede fijar una de las dos.
 - **Previsión y búsqueda:** [Open-Meteo](https://open-meteo.com/), gratis para uso no comercial.
 - **Nombres al hacer clic en el mapa:** Nominatim de OpenStreetMap.
 - **Rayos:** [EUMETSAT](https://www.eumetsat.int/), Meteosat-12 Lightning Imager (capa «Accumulated Flash Area» de EUMETView). Datos libres bajo CC BY 4.0: «Contains modified EUMETSAT Meteosat data». Llegan con unos 15 min de retraso y cubren Europa, África y Oriente Medio. No se usa Blitzortung, porque sus condiciones prohíben usar sus datos en sistemas de aviso de tormentas.
 - **Avisos en el móvil (opcional):** [ntfy.sh](https://ntfy.sh/). Los avisos pasan por su servidor público con un tema aleatorio; quien conozca el nombre del tema puede leerlos.
 - **Ubicación aproximada por IP:** ipwho.is. Solo se usa si pulsas el botón, o si «Aquí» no consigue la ubicación del sistema.
 - **Mapas:** [OpenFreeMap](https://openfreemap.org/) (estilos vectoriales gris claro, oscuro y callejero), © OpenMapTiles, datos © OpenStreetMap. Gratis, sin clave y con uso permitido. CARTO y Esri exigen cuenta o clave; por eso tampoco hay vista de satélite.
-- **Versión web:** usa las mismas fuentes, pedidas directamente desde el navegador de cada visitante (todas lo permiten). Nominatim solo se consulta cuando alguien añade un punto del mapa o usa su ubicación, y nunca la ubicación por IP. Ver la nota sobre RainViewer en «Versión web».
+- **Versión web:** usa las mismas fuentes, salvo RainViewer, pedidas directamente desde el navegador de cada visitante. El radar OPERA pasa por el intermediario de Cloudflare (ver «Versión web»). Nominatim solo se consulta cuando alguien añade un punto del mapa o usa su ubicación, y nunca la ubicación por IP.
 
 Tus ubicaciones, ajustes, datos de precisión (`verify.json`, `verify-log.jsonl`) y mapas de ecos fijos (`clutter/`) se guardan solo en tu ordenador:
 
 - **macOS:** `~/Library/Application Support/Chubasco/chubasco.json`
 - **Windows:** `%APPDATA%\Chubasco\chubasco.json`
 
-Para un uso comercial habría que contratar las fuentes de datos correspondientes.
+Para un uso comercial: OPERA y EUMETSAT lo permiten (CC BY 4.0), pero Open-Meteo y RainViewer exigen un plan de pago.
 
 ## Problemas frecuentes
 
@@ -165,5 +184,5 @@ Para un uso comercial habría que contratar las fuentes de datos correspondiente
 - **No veo el widget:** actívalo en *Ajustes* o en el menú del icono de la barra. Si desconectaste un monitor, vuelve solo a la pantalla principal. En Windows, *Mostrar escritorio* (Win+D) lo esconde como al resto de ventanas.
 - **El widget insertado dice «Faltan las coordenadas del lugar»:** la dirección del `<iframe>` necesita `lat` y `lon`. Cópiala del botón `</>` de la versión web.
 - **El icono no aparece en la barra de menú:** en Macs con muesca puede quedar oculto si hay muchos iconos.
-- **El mapa tarda en cargar la animación la primera vez:** es el límite de peticiones de RainViewer. Las siguientes veces sale de la caché.
+- **El mapa tarda en cargar la animación la primera vez:** con RainViewer es su límite de peticiones; con OPERA, la descarga de los mosaicos de cada fotograma. Las siguientes veces sale de la caché.
 - **Cambiar el nombre de la app:** edita `productName` y `build.productName` en `package.json`. Los iconos se regeneran con `python3 scripts/make-icons.py`, que necesita Pillow.

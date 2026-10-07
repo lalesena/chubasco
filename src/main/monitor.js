@@ -90,6 +90,13 @@ class Monitor {
     this.gen.set(id, (this.gen.get(id) || 0) + 1);
   }
 
+  /** Otra ubicación activa: puede que el mapa tenga que cambiar de fuente. */
+  async syncMap() {
+    const before = this.frames;
+    await this.refreshFrames(false);
+    if (this.frames !== before) this.emit();
+  }
+
   async refreshFrames(force) {
     try {
       const maps = await this.radar.getMaps(force);
@@ -146,9 +153,12 @@ class Monitor {
       if (!this.frames) await this.refreshFrames(false);
       const res = await this.radar.analyze(loc, { thresholdDbz, alarmRadiusKm: loc.alarm.radiusKm });
       next.radar = res;
+      // El mapa enseña la fuente de la ubicación activa (OPERA o RainViewer).
+      const shown = this.frames && this.frames.source;
+      if (res.source && shown && res.source !== shown && id === this.store.data.activeLocationId) await this.refreshFrames(false);
     } catch (e) {
-      this.log('radar', loc.name, e.message);
-      next.radar = { ok: false, error: e.message, checkedAt: Date.now() };
+      if (e.code !== 'noCoverage') this.log('radar', loc.name, e.message);
+      next.radar = { ok: false, error: e.message, code: e.code || null, checkedAt: Date.now() };
     }
 
     const modelKey = `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('chubasco', {
   verifyStats: (id) => ipcRenderer.invoke('verify:get', id),
   dryWatch: (id, minMin) => ipcRenderer.invoke('location:dryWatch', { id, minMin }),
   lightningView: (q) => ipcRenderer.invoke('lightning:view', q),
+  radarTile: (q) => ipcRenderer.invoke('radar:tile', q),
   miniResize: (h) => ipcRenderer.invoke('mini:resize', h),
   miniHide: () => ipcRenderer.invoke('mini:hide'),
   showMain: (id) => ipcRenderer.invoke('app:showMain', id),

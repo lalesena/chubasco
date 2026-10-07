@@ -190,6 +190,14 @@
               <div class="field-top"><label for="opacity" data-i18n="ui.opacity">Opacidad</label><output id="opacity-out"></output></div>
               <input type="range" id="opacity" min="0.3" max="1" step="0.05">
             </div>
+            <div class="field" data-only="desktop">
+              <label for="opt-source" data-i18n="ui.source">Fuente</label>
+              <select id="opt-source">
+                <option value="auto" data-i18n="ui.source.auto"></option>
+                <option value="opera">EUMETNET OPERA</option>
+                <option value="rainviewer">RainViewer</option>
+              </select>
+            </div>
             <label><input type="checkbox" id="opt-smooth"> <span data-i18n="ui.smooth"></span></label>
             <label><input type="checkbox" id="opt-snow"> <span data-i18n="ui.snow"></span></label>
             <label><input type="checkbox" id="opt-future"> <span data-i18n="ui.future"></span></label>
@@ -314,7 +322,8 @@
         <h3 data-i18n="set.sources">Datos</h3>
         <p data-i18n="set.sourcesText"></p>
         <p class="links">
-          <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a>
+          <a href="https://www.eumetnet.eu/" target="_blank">EUMETNET</a>
+          <a href="https://www.rainviewer.com/" target="_blank" data-only="desktop">RainViewer</a>
           <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a>
           <a href="https://www.eumetsat.int/" target="_blank">EUMETSAT</a>
           <a href="https://ntfy.sh/" target="_blank" data-only="desktop">ntfy</a>

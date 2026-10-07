@@ -597,6 +597,7 @@
     $('opt-future').checked = !!s.showFuture;
     $('opt-coverage').checked = !!s.showCoverage;
     $('opt-lightning').checked = !!s.showLightning;
+    $('opt-source').value = s.radarSource || 'auto';
     mapApi.setLightning({ enabled: !!s.showLightning });
   }
 
@@ -607,6 +608,8 @@
     if (!mapApi || !S.frames || document.hidden || framesApplied === S.frames) return;
     framesApplied = S.frames;
     mapApi.setFrames(S.frames);
+    // OPERA no distingue la nieve: la opción solo vale para RainViewer.
+    $('opt-snow').parentElement.hidden = mapApi.source() === 'opera';
   }
 
   function initMap() {
@@ -618,6 +621,7 @@
       onContextMenu: (latlng, point) => showContextMenu(latlng, point),
       onViewChange: debounce((view) => api.updateSettings({ mapView: view }).then((s) => { S.settings = s; }), 1500),
       lightningView: (q) => api.lightningView(q),
+      radarTile: (q) => api.radarTile(q),
       units: () => S.settings.units
     });
     mapApi.setT(S.t);
@@ -652,6 +656,7 @@
     $('opt-future').addEventListener('change', (e) => updateSettings({ showFuture: e.target.checked }));
     $('opt-coverage').addEventListener('change', (e) => updateSettings({ showCoverage: e.target.checked }));
     $('opt-lightning').addEventListener('change', (e) => updateSettings({ showLightning: e.target.checked }));
+    $('opt-source').addEventListener('change', (e) => updateSettings({ radarSource: e.target.value }));
   }
 
   // ------------------------------------------------------------------

@@ -15,9 +15,15 @@
   const BOLT_ICON = '<svg class="bolt-icon" viewBox="0 0 12 16" aria-hidden="true"><path d="M7.4.5 1.3 9.1h4l-1.2 6.4 6.6-8.9H6.6L7.4.5Z"/></svg>';
   const WARN_ICON = '<svg class="warn-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 15 14H1L8 1.8Z"/><path d="M8 6.2v3.6M8 11.6v.4"/></svg>';
   const SIZES = ['small', 'medium', 'large'];
-  const CREDIT = '<a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a> · ' +
-    '<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> · ' +
-    '<a href="https://www.eumetsat.int/" target="_blank" rel="noopener">EUMETSAT</a>';
+  const link = (href, text) => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+  // Atribución en otras webs: OPERA pide autoría y licencia (CC BY 4.0). En
+  // el tamaño pequeño, la forma corta (la web enlazada la da completa).
+  const credit = (source) => [
+    source === 'rainviewer' ? link('https://www.rainviewer.com/', 'RainViewer')
+      : link('https://www.eumetnet.eu/', size() === 'small' ? 'OPERA' : 'EUMETNET OPERA') + ' ' + link('https://creativecommons.org/licenses/by/4.0/', 'CC BY'),
+    link('https://open-meteo.com/', 'Open-Meteo'),
+    link('https://www.eumetsat.int/', 'EUMETSAT')
+  ].join(' · ');
 
   const S = { settings: null, locations: [], activeId: null, statuses: {}, systemLocale: 'es', embed: null, t: I.make('es') };
 
@@ -99,6 +105,10 @@
     const r = st && st.radar;
     $('w-meta').textContent = r && r.ok ? D.fmtClock(t, r.frameTime * 1000) : '';
     $('w-meta').title = r && r.ok ? t('mini.radar', { time: $('w-meta').textContent }) : '';
+    if (S.embed && r && r.ok && r.source !== S.creditSource) {
+      S.creditSource = r.source;
+      $('w-credit').innerHTML = credit(r.source);
+    }
   }
 
   /** Otra ubicación en el widget: si sigue a la de la app, cambia la de la app. */
@@ -142,7 +152,7 @@
   function wireEmbed() {
     const root = $('w');
     $('w-more').remove();
-    $('w-credit').innerHTML = CREDIT;
+    $('w-credit').innerHTML = credit(null);
     root.tabIndex = 0;
     root.setAttribute('role', 'link');
     const open = () => window.open(S.embed.appUrl, '_blank', 'noopener');

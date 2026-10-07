@@ -6,7 +6,8 @@ const {
 } = require('electron');
 
 const { Store } = require('./store');
-const { RadarSource } = require('./radar');
+const { RadarSource, RadarHub } = require('./radar');
+const { OperaSource } = require('./opera');
 const { WeatherSource } = require('./weather');
 const { Monitor } = require('./monitor');
 const { ClutterStore } = require('./clutter');
@@ -693,6 +694,7 @@ function registerIpc() {
     if (patch.widget) { delete patch.widget.x; delete patch.widget.y; } // la posición la pone el arrastre
     store.updateSettings(patch);
     if (patch.widget) applyWidget();
+    if ('radarSource' in patch) monitor.checkNow();
     if (store.settings.push.enabled && !store.settings.push.topic) store.updateSettings({ push: { topic: newTopic() } });
     if (store.settings.checkIntervalMin !== prevInterval) monitor.schedule();
     if (store.settings.language !== prevLang) appMenu();
@@ -812,6 +814,16 @@ function registerIpc() {
   ipcMain.handle('verify:get', (_e, id) => ({ loc: id ? verifier.stats(id) : null, all: verifier.stats(null) }));
 
   // Rayos en la vista del mapa, como puntos para dibujar iconos.
+  // Teselas del mapa con OPERA: un byte por píxel (ver opera.js).
+  ipcMain.handle('radar:tile', async (_e, q) => {
+    try {
+      return await radar.viewTile(q);
+    } catch (e) {
+      if (!e.missing) log('radar tile', e.message);
+      return null;
+    }
+  });
+
   ipcMain.handle('lightning:view', async (_e, q) => {
     const MAX_M = 20037508.34;
     const b = (q && Array.isArray(q.bbox) ? q.bbox : []).map(Number);
@@ -831,6 +843,7 @@ function registerIpc() {
     store.setActive(id);
     broadcastLocations();
     if (!lastPayload.statuses[id]) monitor.checkNow(id);
+    monitor.syncMap();
   });
 
   ipcMain.handle('geo:search', (_e, q) => weather.search(String(q || '').slice(0, 100), getT().lang));
@@ -872,7 +885,14 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_wc, perm, origin, details) => allowGeo(perm, (details && details.requestingUrl) || origin));
   clutter = new ClutterStore(app.getPath('userData'), { log });
   verifier = new Verifier(app.getPath('userData'), { log });
-  radar = new RadarSource({ fetch: fetchImpl, userAgent: userAgent(), log, clutter });
+  // Radar: OPERA (Europa) y RainViewer donde OPERA no llega.
+  radar = new RadarHub({
+    opera: new OperaSource({ fetch: fetchImpl, userAgent: userAgent(), log, clutter }),
+    rainviewer: new RadarSource({ fetch: fetchImpl, userAgent: userAgent(), log, clutter }),
+    mode: () => store.settings.radarSource,
+    mapAt: () => store.data.locations.find((l) => l.id === store.data.activeLocationId) || null,
+    log
+  });
   weather = new WeatherSource({ fetch: fetchImpl, userAgent: userAgent(), log });
   lightning = new LightningSource({ fetch: fetchImpl, userAgent: userAgent(), log });
   monitor = new Monitor({

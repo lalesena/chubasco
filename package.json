@@ -11,6 +11,9 @@
     "url": "https://github.com/lalesena/chubasco.git"
   },
   "private": true,
+  "config": {
+    "operaProxy": ""
+  },
   "scripts": {
     "start": "electron .",
     "demo": "electron . --demo",

@@ -2,11 +2,14 @@
 /*
  * Modo demostración (CHUBASCO_MOCK=1 / `npm run demo`): intercepta las
  * peticiones HTTPS y sirve datos sintéticos — una línea de tormentas que
- * avanza hacia Madrid — para probar la interfaz y las alarmas sin red.
+ * avanza hacia Madrid, en RainViewer y en OPERA — para probar la interfaz y
+ * las alarmas sin red.
  */
 const { protocol } = require('electron');
 const { PNG } = require('pngjs');
 const P = require('../shared/palette');
+const { operaFile } = require('./mock-opera');
+const { BASE_URL, DELAY } = require('./opera');
 
 const HOME = { lat: 40.4168, lon: -3.7038 };
 const STEP = 600; // 10 min
@@ -68,6 +71,35 @@ function radarTile(time, size, z, x, y) {
     }
   }
   return PNG.sync.write(png);
+}
+
+// Radar OPERA: el mismo frente de tormentas en la rejilla europea.
+const OPERA_HOST = new URL(BASE_URL).host;
+const operaFiles = new Map();
+function operaFor(time) {
+  if (!operaFiles.has(time)) {
+    const tMin = (time - Date.now() / 1000) / 60;
+    const cosLat = Math.cos((HOME.lat * Math.PI) / 180);
+    const file = operaFile((lat, lon) => {
+      const v = dbzAt((lon - HOME.lon) * 111.2 * cosLat, (lat - HOME.lat) * 111.2, tMin);
+      return v < 10 ? NaN : v;
+    }, { lat0: HOME.lat - 3, lat1: HOME.lat + 3, lon0: HOME.lon - 4, lon1: HOME.lon + 4 });
+    operaFiles.set(time, file);
+    if (operaFiles.size > 16) operaFiles.delete(operaFiles.keys().next().value);
+  }
+  return operaFiles.get(time);
+}
+
+function operaResponse(req, u) {
+  const m = /OPERA@(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})@/.exec(u.pathname);
+  if (!m) return new Response('', { status: 404 });
+  const time = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000;
+  if (time > Date.now() / 1000 - DELAY) return new Response('', { status: 404 }); // aún no publicado
+  const file = operaFor(time);
+  const r = /bytes=(\d+)-(\d+)/.exec(req.headers.get('range') || '');
+  if (!r) return new Response(file.read(0, file.size - 1));
+  const bytes = file.read(+r[1], +r[2]);
+  return new Response(bytes, { status: 206, headers: { 'content-range': `bytes ${r[1]}-${+r[1] + bytes.length - 1}/${file.size}` } });
 }
 
 // Rayos (imita la capa li_afa de EUMETSAT): destellos en los núcleos de más de 34 dBZ.
@@ -168,6 +200,7 @@ function install() {
       const [, , time, size, z, x, y] = parts;
       return png(radarTile(Number(time), Number(size), Number(z), Number(x), Number(y)));
     }
+    if (u.host === OPERA_HOST) return operaResponse(req, u);
     if (u.host === 'api.open-meteo.com') return json(forecast());
     if (u.host === 'geocoding-api.open-meteo.com') {
       return json({ results: [
