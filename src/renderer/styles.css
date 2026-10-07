@@ -507,7 +507,7 @@ body.widget { background: transparent; overflow: hidden; }
 .leaflet-pane.leaflet-radar-pane { transition: filter 0.3s; }
 .future .leaflet-radar-pane { filter: saturate(0.7) contrast(0.9); opacity: 0.85; }
 /* OPERA sin suavizar: píxeles de 1 km nítidos al acercarse. */
-.radar-opera.radar-raw .leaflet-radar-pane canvas { image-rendering: pixelated; }
+.radar-raw .leaflet-radar-pane canvas { image-rendering: pixelated; }
 
 .map-tools { position: absolute; top: 12px; right: 12px; z-index: 900; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .tool-btn {

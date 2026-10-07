@@ -1,10 +1,10 @@
 /*
  * Decodificador PNG mínimo sobre DecompressionStream, que existe igual en el
  * navegador y en Node: la app de escritorio y la versión web leen las
- * imágenes del radar y de los rayos exactamente igual (y la web no necesita
+ * imágenes de los rayos exactamente igual (y la web no necesita
  * cargar una librería de PNG). Admite escala de grises, RGB y paleta, con o
- * sin alfa, a 1–16 bits; no admite PNG entrelazados (ni RainViewer ni
- * EUMETSAT los usan). UMD: self.RA_PNG en el navegador.
+ * sin alfa, a 1–16 bits; no admite PNG entrelazados (EUMETSAT
+ * no los usa). UMD: self.RA_PNG en el navegador.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();

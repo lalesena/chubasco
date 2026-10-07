@@ -11,8 +11,7 @@
  * página abierta.
  */
 const { StoreCore } = require('../../src/main/store');
-const { RadarSource, RadarHub } = require('../../src/main/radar');
-const { OperaSource } = require('../../src/main/opera');
+const { OperaSource, BASE_URL } = require('../../src/main/opera');
 const { WeatherSource } = require('../../src/main/weather');
 const { LightningSource } = require('../../src/main/lightning');
 const { Monitor } = require('../../src/main/monitor');
@@ -68,11 +67,9 @@ function createEngine({ initial, embed, open, locale, version, operaProxy, post 
   }
   const getT = () => I18N.make(I18N.resolveLang(store.settings.language, locale));
 
-  // Radar: OPERA a través del intermediario (el almacén de EUMETNET no
-  // admite peticiones desde otras webs); sin intermediario, RainViewer.
-  const radar = operaProxy
-    ? new RadarHub({ opera: new OperaSource({ fetch: webFetch, baseUrl: operaProxy, log }), log })
-    : new RadarSource({ fetch: webFetch, userAgent: '', log });
+  // Radar OPERA a través del intermediario: el almacén de EUMETNET no
+  // admite peticiones desde otras webs.
+  const radar = new OperaSource({ fetch: webFetch, baseUrl: operaProxy || BASE_URL, log });
   const weather = new WeatherSource({ fetch: webFetch, userAgent: '', log });
   const lightning = new LightningSource({ fetch: webFetch, userAgent: '', log });
   let last = { statuses: {}, frames: null, error: null };
@@ -169,7 +166,6 @@ function createEngine({ initial, embed, open, locale, version, operaProxy, post 
       store.setActive(id);
       broadcastLocations();
       if (!last.statuses[id]) monitor.checkNow(id);
-      monitor.syncMap();
     },
 
     search: (q) => weather.search(String(q || '').slice(0, 100), getT().lang),
@@ -210,7 +206,7 @@ function createEngine({ initial, embed, open, locale, version, operaProxy, post 
       }
     },
 
-    radarTile: (q) => (radar.viewTile ? radar.viewTile(q).catch(() => null) : null),
+    radarTile: (q) => radar.viewTile(q).catch(() => null),
 
     checkNow() { monitor.checkNow(); },
 

@@ -1,40 +1,13 @@
 'use strict';
 /*
- * Acceso a RainViewer (API gratuita para uso personal):
- *  - lista de fotogramas: https://api.rainviewer.com/public/weather-maps.json
- *  - tiles: {host}{path}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png
- * Límites actuales: zoom máx. 7, solo paleta 2, 100 peticiones/min por IP,
- * solo pasado (2 h, cada 10 min). Por eso la previsión la calculamos aquí.
+ * Análisis del radar común a cualquier fuente que ofrezca getMaps()
+ * (fotogramas) y gridFor(fotograma, caja) (rejilla de dBZ), hoy OPERA
+ * (ver opera.js), y una caché LRU pequeña.
  */
 const A = require('./analysis');
-const PNG = require('../shared/png');
 const P = require('../shared/palette');
 
-const MAPS_URL = 'https://api.rainviewer.com/public/weather-maps.json';
-const COLOR = 2;
-
 const meanOf = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0);
-
-class RateLimiter {
-  constructor(perMinute) {
-    this.perMinute = perMinute;
-    this.stamps = [];
-    this.chain = Promise.resolve();
-  }
-  run(fn) {
-    const job = this.chain.then(async () => {
-      for (;;) {
-        const now = Date.now();
-        this.stamps = this.stamps.filter((t) => now - t < 60000);
-        if (this.stamps.length < this.perMinute) break;
-        await new Promise((r) => setTimeout(r, 60000 - (now - this.stamps[0]) + 50));
-      }
-      this.stamps.push(Date.now());
-    });
-    this.chain = job.catch(() => {});
-    return job.then(fn);
-  }
-}
 
 class LRU {
   constructor(max) { this.max = max; this.map = new Map(); }
@@ -51,89 +24,11 @@ class LRU {
   delete(k) { this.map.delete(k); }
 }
 
-class RadarSource {
-  constructor({ fetch, userAgent, log = () => {}, clutter = null }) {
-    this.id = 'rainviewer';
-    this.fetch = fetch;
-    this.userAgent = userAgent;
-    this.log = log;
-    this.clutter = clutter; // ClutterStore (opcional)
-    this.maps = null;
-    this.mapsAt = 0;
-    // El mapa de la ventana también consume del mismo cupo de 100/min,
-    // así que el monitor se queda con una parte pequeña.
-    this.limiter = new RateLimiter(30);
-    // Pocas entradas: solo se usan los 4 últimos fotogramas (≈1 MB por tile).
-    this.tiles = new LRU(24);
-    this.grids = new LRU(24);
-    this.inflight = new Map();
-  }
-
-  async getMaps(force = false) {
-    if (!force && this.maps && Date.now() - this.mapsAt < 60000) return this.maps;
-    const res = await this.limiter.run(() => this.fetch(MAPS_URL, { headers: { 'User-Agent': this.userAgent } }));
-    if (!res.ok) throw new Error(`RainViewer HTTP ${res.status}`);
-    const json = await res.json();
-    const past = (json.radar && json.radar.past) || [];
-    if (!json.host || !past.length) throw new Error('RainViewer: respuesta sin fotogramas');
-    this.maps = {
-      source: 'rainviewer',
-      host: json.host,
-      generated: json.generated,
-      frames: past.map((f) => ({ time: f.time, path: f.path })).sort((a, b) => a.time - b.time)
-    };
-    this.mapsAt = Date.now();
-    return this.maps;
-  }
-
-  tileUrl(frame, tx, ty, { size = A.TILE_SIZE, z = A.ZOOM, smooth = 0, snow = 1 } = {}) {
-    return `${this.maps.host}${frame.path}/${size}/${z}/${tx}/${ty}/${COLOR}/${smooth}_${snow}.png`;
-  }
-
-  async getTile(url) {
-    const cached = this.tiles.get(url);
-    if (cached !== undefined) return cached;
-    if (this.inflight.has(url)) return this.inflight.get(url);
-    const p = this.limiter.run(async () => {
-      const res = await this.fetch(url, { headers: { 'User-Agent': this.userAgent } });
-      if (res.status === 429) throw new Error('RainViewer: demasiadas peticiones (429)');
-      if (!res.ok) throw new Error(`RainViewer tile HTTP ${res.status}`);
-      return PNG.decode(await res.arrayBuffer());
-    }).then((img) => { this.tiles.set(url, img); return img; })
-      .finally(() => this.inflight.delete(url));
-    this.inflight.set(url, p);
-    return p;
-  }
-
-  async gridFor(frame, box) {
-    const key = `${frame.time}|${box.key}`;
-    const hit = this.grids.get(key);
-    if (hit) return hit;
-    const images = new Map();
-    let errors = 0;
-    await Promise.all(box.tiles.map(async (t) => {
-      try {
-        images.set(`${t.tx}/${t.ty}`, await this.getTile(this.tileUrl(frame, t.tx, t.ty)));
-      } catch (e) {
-        errors++;
-        this.log('tile', e.message);
-      }
-    }));
-    if (errors === box.tiles.length) throw new Error('No se pudo descargar el radar');
-    const grid = A.buildGrid(box, (t) => images.get(`${t.tx}/${t.ty}`) || null);
-    grid.time = frame.time;
-    if (!errors) this.grids.set(key, grid);
-    return grid;
-  }
-
-  analyze(loc, opts) { return analyzeWith(this, loc, opts); }
-}
-
 /**
  * Analiza una ubicación con una fuente de radar (getMaps + gridFor): estado
  * actual, tendencia, movimiento y nowcast.
  */
-async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = null, requireCoverage = false, maxMissing = null }) {
+async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = null, requireCoverage = false }) {
   const maps = await src.getMaps();
   const frames = maps.frames;
   // Radio de análisis: algo mayor que el de alarma para ver lo que viene.
@@ -196,10 +91,8 @@ async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = nul
   const clean = (g) => g && A.cleanGrid(g, { thresholdDbz, minPx });
   const latest = clean(latestBase);
   const stats = A.locationStats(latest, box, { alarmRadiusKm, thresholdDbz, searchRadiusKm: analysisKm });
-  // Fuera de la cobertura de esta fuente (OPERA solo cubre Europa) o, con
-  // maxMissing, sin datos en buena parte de la zona de alarma.
-  if ((requireCoverage && !stats.atLocation.hasData && stats.missingFraction > 0.5) ||
-    (maxMissing !== null && stats.missingFraction > maxMissing)) {
+  // Fuera de la cobertura del radar (OPERA solo cubre Europa).
+  if (requireCoverage && !stats.atLocation.hasData && stats.missingFraction > 0.5) {
     const e = new Error('Sin cobertura de radar');
     e.code = 'noCoverage';
     throw e;
@@ -267,69 +160,4 @@ async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = nul
   };
 }
 
-/**
- * Elige la fuente de cada ubicación: OPERA (Europa, CC BY 4.0) donde llega y
- * RainViewer en el resto, si la hay (solo en la app de escritorio).
- * mode(): 'auto' | 'opera' | 'rainviewer'; mapAt(): {id, lat, lon} o null,
- * la ubicación que decide qué fuente enseña el mapa.
- */
-class RadarHub {
-  constructor({ opera = null, rainviewer = null, mode = () => 'auto', mapAt = () => null, log = () => {} }) {
-    this.opera = opera;
-    this.rainviewer = rainviewer;
-    this.mode = mode;
-    this.mapAt = mapAt;
-    this.log = log;
-    this.used = new Map(); // id de ubicación → fuente de su último análisis
-  }
-
-  only() {
-    const m = this.mode();
-    if (!this.opera || (m === 'rainviewer' && this.rainviewer)) return this.rainviewer;
-    if (!this.rainviewer || m === 'opera') return this.opera;
-    return null; // automático
-  }
-
-  async analyze(loc, opts) {
-    const fixed = this.only();
-    if (fixed) return fixed.analyze(loc, opts);
-    try {
-      // Si OPERA no ve bien la zona (p. ej. Italia), mejor RainViewer.
-      const res = await this.opera.analyze(loc, { ...opts, maxMissing: 0.2 });
-      // OPERA con mucho retraso (caída del servicio): si RainViewer va por
-      // delante, mejor RainViewer.
-      if (Date.now() / 1000 - res.frameTime > 25 * 60) {
-        const rv = await this.rainviewer.analyze(loc, opts).catch(() => null);
-        if (rv && rv.frameTime > res.frameTime) { this.used.set(loc.id, 'rainviewer'); return rv; }
-      }
-      this.used.set(loc.id, 'opera');
-      return res;
-    } catch (e) {
-      if (e.code !== 'noCoverage') this.log('opera', loc.name, e.message);
-      this.used.set(loc.id, 'rainviewer');
-      return this.rainviewer.analyze(loc, opts);
-    }
-  }
-
-  /** Fotogramas del mapa, de la fuente que usa la ubicación activa. */
-  getMaps(force) {
-    let src = this.only();
-    if (!src) {
-      const at = this.mapAt();
-      src = at && this.used.get(at.id) === 'rainviewer' ? this.rainviewer : this.opera;
-    }
-    return src.getMaps(force).catch((e) => {
-      const other = src === this.opera ? this.rainviewer : this.opera;
-      if (!other || this.only()) throw e;
-      this.log('maps', e.message);
-      return other.getMaps(force);
-    });
-  }
-
-  viewTile(req) {
-    if (!this.opera) throw new Error('Sin radar OPERA');
-    return this.opera.viewTile(req);
-  }
-}
-
-module.exports = { RadarSource, RadarHub, RateLimiter, LRU, analyzeWith, MAPS_URL };
+module.exports = { LRU, analyzeWith };

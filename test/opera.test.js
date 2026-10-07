@@ -7,7 +7,6 @@ const { pathToFileURL } = require('url');
 
 const TIFF = require('../src/main/tiff');
 const O = require('../src/main/opera');
-const { RadarHub } = require('../src/main/radar');
 const { operaFile } = require('../src/main/mock-opera');
 
 // Un chubasco rectangular de 40 dBZ cerca de Madrid.
@@ -112,37 +111,6 @@ test('OPERA: teselas del mapa en su sitio', async () => {
   assert.ok(far.every((v) => v === O.NODATA));
 });
 
-test('RadarHub: OPERA donde llega, RainViewer en el resto', async () => {
-  const fake = (id, covered) => ({
-    id,
-    calls: 0,
-    async analyze(loc) {
-      this.calls++;
-      if (!covered(loc)) { const e = new Error('x'); e.code = 'noCoverage'; throw e; }
-      return { ok: true, source: id };
-    },
-    async getMaps() { return { source: id, frames: [] }; }
-  });
-  const opera = fake('opera', (l) => l.lon > -30);
-  const rainviewer = fake('rainviewer', () => true);
-  let mode = 'auto', active = null;
-  const hub = new RadarHub({ opera, rainviewer, mode: () => mode, mapAt: () => active });
-  const bcn = { id: 'bcn', lat: 41.4, lon: 2.2 }, ny = { id: 'ny', lat: 40.7, lon: -74 };
-  assert.equal((await hub.analyze(bcn, {})).source, 'opera');
-  assert.equal((await hub.analyze(ny, {})).source, 'rainviewer');
-  active = bcn;
-  assert.equal((await hub.getMaps()).source, 'opera');
-  active = ny;
-  assert.equal((await hub.getMaps()).source, 'rainviewer');
-  mode = 'rainviewer';
-  assert.equal((await hub.analyze(bcn, {})).source, 'rainviewer');
-  mode = 'opera';
-  await assert.rejects(hub.analyze(ny, {}), (e) => e.code === 'noCoverage');
-  // Web: solo OPERA.
-  const web = new RadarHub({ opera });
-  await assert.rejects(web.analyze(ny, {}), (e) => e.code === 'noCoverage');
-});
-
 test('Intermediario de Cloudflare: solo OPERA, con rango, CORS y caché', async () => {
   const worker = (await import(pathToFileURL(path.join(__dirname, '../proxy/opera-worker.js')).href)).default;
   const store = new Map();
@@ -187,4 +155,11 @@ test('Intermediario de Cloudflare: solo OPERA, con rango, CORS y caché', async 
     globalThis.fetch = realFetch;
     delete globalThis.caches;
   }
+});
+
+test('los ajustes de la fuente de radar anterior se borran al cargar', () => {
+  const { StoreCore } = require('../src/main/store');
+  const s = new StoreCore({ settings: { radarSource: 'rainviewer', showSnow: false, smooth: false } });
+  assert.ok(!('radarSource' in s.settings) && !('showSnow' in s.settings));
+  assert.equal(s.settings.smooth, false);
 });

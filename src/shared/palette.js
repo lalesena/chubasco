@@ -1,8 +1,8 @@
 /*
- * Paleta "Universal Blue" (id 2) de RainViewer, la única disponible en su API
- * gratuita desde enero de 2026. Valores ancla cada 5 dBZ tomados de
- * https://www.rainviewer.com/files/rainviewer_api_colors_table.csv
- * Sección 1 = lluvia, sección 2 = nieve (al pedir los tiles con snow=1).
+ * Escala de colores por dBZ para el mapa, la leyenda y las gráficas, con
+ * anclas cada 5 dBZ (los colores siguen la paleta «Universal Blue» publicada
+ * por RainViewer; solo los colores, ningún dato suyo). Una escala para la
+ * lluvia y otra para la nieve (la nieve la da el modelo, no el radar).
  *
  * Módulo UMD: se usa desde el proceso principal (require) y desde la
  * interfaz (<script>, expone window.RA_PALETTE).
@@ -39,8 +39,7 @@
     ];
   }
 
-  // Tabla de 1 dBZ interpolando entre anclas. Si la paleta real va por
-  // escalones, el emparejamiento por color más cercano sigue funcionando.
+  // Tabla de 1 dBZ interpolando entre anclas.
   function expand(anchors, kind) {
     const out = [];
     for (let i = 0; i < anchors.length - 1; i++) {
@@ -66,32 +65,6 @@
   const TABLE = expand(RAIN_ANCHORS, KIND_RAIN)
     .concat(expand(SNOW_ANCHORS, KIND_SNOW))
     .filter((e) => e.rgba[3] > 0);
-
-  const cache = new Map();
-
-  /**
-   * Devuelve {dbz, kind} para un píxel RGBA (alfa sin premultiplicar).
-   * kind 0 = sin precipitación.
-   */
-  function classifyRGBA(r, g, b, a) {
-    if (a < 8) return NONE;
-    const key = ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
-    const hit = cache.get(key);
-    if (hit) return hit;
-    let best = null;
-    let bestD = Infinity;
-    for (const e of TABLE) {
-      const c = e.rgba;
-      const dr = r - c[0], dg = g - c[1], db = b - c[2], da = (a - c[3]) * 1.5;
-      const d = dr * dr + dg * dg + db * db + da * da;
-      if (d < bestD) { bestD = d; best = e; }
-    }
-    // Colores muy lejanos de la paleta (texto, artefactos) se ignoran.
-    const res = bestD > 60 * 60 * 3 ? NONE : { dbz: best.dbz, kind: best.kind };
-    if (cache.size < 50000) cache.set(key, res);
-    return res;
-  }
-  const NONE = Object.freeze({ dbz: NaN, kind: KIND_NONE });
 
   /** dBZ → mm/h (Marshall-Palmer para lluvia, Sekhon-Srivastava para nieve). */
   function dbzToRate(dbz, kind) {
@@ -147,7 +120,7 @@
 
   return {
     KIND_NONE, KIND_RAIN, KIND_SNOW, LEVELS,
-    classifyRGBA, dbzToRate, rateToDbz, levelOf, legend, cssFor,
+    dbzToRate, rateToDbz, levelOf, legend, cssFor,
     _table: TABLE
   };
 });

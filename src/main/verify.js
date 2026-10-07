@@ -76,7 +76,7 @@ class Verifier {
   }
 
   /**
-   * `radar`: resultado (sin calibrar) de RadarSource.analyze; `model`: la
+   * `radar`: resultado (sin calibrar) del análisis del radar; `model`: la
    * previsión del modelo en ese momento (para aprender cuánto fiarse de cada uno).
    */
   ingest(id, thresholdDbz, radar, model = null) {

@@ -587,17 +587,15 @@
     if (!mapApi) return;
     const s = S.settings;
     mapApi.setBase(baseKey());
-    mapApi.setRadarOptions({ opacity: s.radarOpacity, smooth: s.smooth, snow: s.showSnow, coverage: s.showCoverage, future: s.showFuture });
+    mapApi.setRadarOptions({ opacity: s.radarOpacity, smooth: s.smooth, coverage: s.showCoverage, future: s.showFuture });
     mapApi.renderLegend(s);
     document.querySelectorAll('input[name=base]').forEach((r) => { r.checked = r.value === (s.baseMap || 'auto'); });
     $('opacity').value = s.radarOpacity;
     $('opacity-out').textContent = Math.round(s.radarOpacity * 100) + ' %';
     $('opt-smooth').checked = !!s.smooth;
-    $('opt-snow').checked = !!s.showSnow;
     $('opt-future').checked = !!s.showFuture;
     $('opt-coverage').checked = !!s.showCoverage;
     $('opt-lightning').checked = !!s.showLightning;
-    $('opt-source').value = s.radarSource || 'auto';
     mapApi.setLightning({ enabled: !!s.showLightning });
   }
 
@@ -608,8 +606,6 @@
     if (!mapApi || !S.frames || document.hidden || framesApplied === S.frames) return;
     framesApplied = S.frames;
     mapApi.setFrames(S.frames);
-    // OPERA no distingue la nieve: la opción solo vale para RainViewer.
-    $('opt-snow').parentElement.hidden = mapApi.source() === 'opera';
   }
 
   function initMap() {
@@ -652,11 +648,9 @@
     });
     $('opacity').addEventListener('change', (e) => updateSettings({ radarOpacity: Number(e.target.value) }));
     $('opt-smooth').addEventListener('change', (e) => updateSettings({ smooth: e.target.checked }));
-    $('opt-snow').addEventListener('change', (e) => updateSettings({ showSnow: e.target.checked }));
     $('opt-future').addEventListener('change', (e) => updateSettings({ showFuture: e.target.checked }));
     $('opt-coverage').addEventListener('change', (e) => updateSettings({ showCoverage: e.target.checked }));
     $('opt-lightning').addEventListener('change', (e) => updateSettings({ showLightning: e.target.checked }));
-    $('opt-source').addEventListener('change', (e) => updateSettings({ radarSource: e.target.value }));
   }
 
   // ------------------------------------------------------------------

@@ -1,6 +1,6 @@
 /* Mapa: capas base, radar animado con previsión extrapolada, ubicaciones.
- * El radar es OPERA (teselas que calcula el proceso principal o el motor web
- * y aquí se colorean) o, fuera de Europa en la app, RainViewer (imágenes). */
+ * El radar es OPERA: teselas que calcula el proceso principal (o el motor
+ * web) y aquí se colorean. */
 (function () {
   'use strict';
   const L = window.L;
@@ -38,12 +38,9 @@
       labels: { ...style, layers: style.layers.filter((l) => l.type === 'symbol').map(localize) }
     };
   }
-  const RADAR_ATTR = {
-    rainviewer: () => 'Radar © <a href="https://www.rainviewer.com/">RainViewer</a>',
-    // CC BY 4.0: autoría, licencia y aviso de que los datos están transformados.
-    opera: (t) => 'Radar <a href="https://www.eumetnet.eu/">EUMETNET</a> OPERA (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>' +
-      (t ? ', ' + t('map.processed') : '') + ')'
-  };
+  // CC BY 4.0: autoría, licencia y aviso de que los datos están transformados.
+  const RADAR_ATTR = (t) => 'Radar <a href="https://www.eumetnet.eu/">EUMETNET</a> OPERA (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>' +
+    (t ? ', ' + t('map.processed') : '') + ')';
   // Rayos: Meteosat-12 Lightning Imager (EUMETSAT, CC BY 4.0). El proceso
   // principal los agrupa en puntos y aquí se dibujan como iconos de rayo.
   const BOLT = '<svg viewBox="0 0 12 16" aria-hidden="true"><path d="M7.4.5 1.3 9.1h4l-1.2 6.4 6.6-8.9H6.6L7.4.5Z"/></svg>';
@@ -52,31 +49,9 @@
   const FUTURE_COUNT = 6; // previsión: 6 pasos de 10 min a partir de ahora
 
   // ------------------------------------------------------------------
-  // Cola de descargas: RainViewer admite 100 peticiones/min por IP y el
-  // monitor en segundo plano también gasta, así que el mapa se limita.
-
-  const Scheduler = {
-    cap: 20, perSec: 0.8, tokens: 20, last: performance.now(), queue: [], timer: null,
-    push(job) { this.queue.push(job); this.pump(); },
-    pump() {
-      const now = performance.now();
-      this.tokens = Math.min(this.cap, this.tokens + ((now - this.last) / 1000) * this.perSec);
-      this.last = now;
-      this.queue = this.queue.filter((j) => !j.cancelled());
-      this.queue.sort((a, b) => a.priority() - b.priority());
-      while (this.tokens >= 1 && this.queue.length) {
-        this.tokens -= 1;
-        this.queue.shift().run();
-      }
-      if (this.queue.length && !this.timer) {
-        this.timer = setTimeout(() => { this.timer = null; this.pump(); }, 1000 / this.perSec);
-      }
-    }
-  };
-
-  // OPERA: teselas de un byte por píxel (0 sin eco, 255 sin datos, si no
-  // dBZ = q / 2 − 32) que se calculan fuera de la interfaz. Cola propia: no
-  // hay cupo por minuto, solo se limita cuántas van a la vez.
+  // Radar: teselas de un byte por píxel (0 sin eco, 255 sin datos, si no
+  // dBZ = q / 2 − 32) que se calculan fuera de la interfaz. Se limita cuántas
+  // se piden a la vez; primero las del fotograma que se ve.
   const OperaQueue = {
     max: 6, active: 0, queue: [],
     push(job) { this.queue.push(job); this.pump(); },
@@ -154,34 +129,6 @@
     }
   });
 
-  const RadarLayer = L.TileLayer.extend({
-    createTile(coords, done) {
-      const tile = document.createElement('img');
-      L.DomEvent.on(tile, 'load', L.Util.bind(this._tileOnLoad, this, done, tile));
-      L.DomEvent.on(tile, 'error', L.Util.bind(this._raOnError, this, done, tile, coords));
-      tile.alt = '';
-      tile.setAttribute('role', 'presentation');
-      this._raQueue(tile, this.getTileUrl(coords));
-      return tile;
-    },
-    _raQueue(tile, url) {
-      const layer = this;
-      Scheduler.push({
-        run: () => { tile.src = url; },
-        cancelled: () => !!tile._raDead || !layer._map,
-        priority: () => (layer.raPriority ? layer.raPriority() : 5)
-      });
-    },
-    _raOnError(done, tile, coords) {
-      tile._raTries = (tile._raTries || 0) + 1;
-      if (tile._raTries <= 2 && !tile._raDead) {
-        setTimeout(() => this._raQueue(tile, this.getTileUrl(coords)), 12000 * tile._raTries);
-        return;
-      }
-      this._tileOnError(done, tile, new Error('tile'));
-    }
-  });
-
   function destination(lat, lon, km, bearingDeg) {
     const R = 6371.0088;
     const d = km / R, th = bearingDeg * Math.PI / 180;
@@ -204,7 +151,6 @@
     });
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    map.createPane('coverage').style.zIndex = 290;
     const radarPane = map.createPane('radar');
     radarPane.style.zIndex = 300;
     radarPane.classList.add('leaflet-radar-pane');
@@ -217,9 +163,8 @@
       t: null, baseKey: null, baseLayer: null, labelsLayer: null, baseSeq: 0, baseRetry: null,
       maps: null, layers: [], // { frame, layer, ready }
       index: 0, playing: false, timer: null,
-      opts: { opacity: 0.8, smooth: true, snow: true, coverage: false, future: true }, legendSettings: null,
+      opts: { opacity: 0.8, smooth: true, coverage: false, future: true },
       motion: null, anchor: null,
-      coverageLayer: null,
       lightningOn: false, lightningSeq: 0, lightningGroup: L.layerGroup(),
       locLayer: L.layerGroup().addTo(map),
       overlay: L.layerGroup().addTo(map)
@@ -253,8 +198,7 @@
 
     function updateAttribution() {
       const def = BASES[st.baseKey] || BASES.light;
-      const radar = RADAR_ATTR[sourceOf()](st.t);
-      dom.attribution.innerHTML = [def.attr, radar].concat(st.lightningOn ? [LIGHTNING_ATTR] : []).join(' · ');
+      dom.attribution.innerHTML = [def.attr, RADAR_ATTR(st.t)].concat(st.lightningOn ? [LIGHTNING_ATTR] : []).join(' · ');
     }
 
     // ----------------------------------------------------------------
@@ -296,26 +240,14 @@
     // ----------------------------------------------------------------
     // Radar
 
-    function sourceOf() { return st.maps && st.maps.source === 'rainviewer' ? 'rainviewer' : 'opera'; }
-
-    function radarUrl(frame) {
-      const o = st.opts;
-      return `${st.maps.host}${frame.path}/512/{z}/{x}/{y}/2/${o.smooth ? 1 : 0}_${o.snow ? 1 : 0}.png`;
-    }
-
     const operaHost = { fetch: (q) => handlers.radarTile(q), opts: () => st.opts };
 
     function makeLayer(frame) {
       const entry = { frame, ready: false };
-      const layer = sourceOf() === 'opera'
-        ? new OperaLayer(frame, operaHost, {
-          tileSize: 256, maxNativeZoom: 9, maxZoom: 12,
-          opacity: 0, pane: 'radar', keepBuffer: 1, updateWhenZooming: false
-        })
-        : new RadarLayer(radarUrl(frame), {
-          tileSize: 512, zoomOffset: -1, maxNativeZoom: 7, maxZoom: 12,
-          opacity: 0, pane: 'radar', keepBuffer: 1, updateWhenZooming: false
-        });
+      const layer = new OperaLayer(frame, operaHost, {
+        tileSize: 256, maxNativeZoom: 9, maxZoom: 12,
+        opacity: 0, pane: 'radar', keepBuffer: 1, updateWhenZooming: false
+      });
       layer.raPriority = () => {
         const i = st.layers.indexOf(entry);
         if (i === st.index || (st.index >= st.layers.length && i === st.layers.length - 1)) return 0;
@@ -331,18 +263,9 @@
 
     function setFrames(maps) {
       if (!maps || !maps.frames || !maps.frames.length) return;
-      // Otra fuente (OPERA ↔ RainViewer): se empieza de cero.
-      if (st.maps && (st.maps.source || 'rainviewer') !== (maps.source || 'rainviewer')) {
-        for (const e of st.layers) map.removeLayer(e.layer);
-        st.layers = [];
-        if (st.coverageLayer) { map.removeLayer(st.coverageLayer); st.coverageLayer = null; }
-      }
       const wasAtLatest = st.index >= st.layers.length - 1;
       const prevLen = st.layers.length;
       st.maps = maps;
-      el.classList.toggle('radar-opera', sourceOf() === 'opera');
-      updateAttribution();
-      if (st.legendSettings) renderLegend(st.legendSettings);
       const keep = new Map(st.layers.map((e) => [e.frame.path, e]));
       const next = [];
       for (const f of maps.frames) {
@@ -352,36 +275,18 @@
       for (const e of keep.values()) map.removeLayer(e.layer);
       st.layers = next;
       if (wasAtLatest || !prevLen || st.index >= next.length) st.index = next.length - 1;
-      if (st.opts.coverage) ensureCoverage();
       show();
     }
 
     function setRadarOptions(o) {
       const smoothChange = 'smooth' in o && o.smooth !== st.opts.smooth;
-      const urlChange = smoothChange || ('snow' in o && o.snow !== st.opts.snow);
       const coverageChange = 'coverage' in o && o.coverage !== st.opts.coverage;
       st.opts = { ...st.opts, ...o };
       el.classList.toggle('radar-raw', !st.opts.smooth);
-      if (st.maps && sourceOf() === 'opera') {
-        if (smoothChange) for (const e of st.layers) { e.ready = false; e.layer.redraw(); }
-        else if (coverageChange) for (const e of st.layers) e.layer.repaint();
-        show();
-        return;
-      }
-      if (urlChange && st.maps) for (const e of st.layers) { e.ready = false; e.layer.setUrl(radarUrl(e.frame)); }
-      if (st.opts.coverage) ensureCoverage();
-      else if (st.coverageLayer) { map.removeLayer(st.coverageLayer); st.coverageLayer = null; }
+      // Suavizar: se piden otra vez (salen de la caché); cobertura: solo se repintan.
+      if (smoothChange) for (const e of st.layers) { e.ready = false; e.layer.redraw(); }
+      else if (coverageChange) for (const e of st.layers) e.layer.repaint();
       show();
-    }
-
-    function ensureCoverage() {
-      if (st.coverageLayer || !st.maps || sourceOf() === 'opera') return; // OPERA: gris donde no hay datos
-      st.coverageLayer = new RadarLayer(`${st.maps.host}/v2/coverage/0/512/{z}/{x}/{y}/0/0_0.png`, {
-        tileSize: 512, zoomOffset: -1, maxNativeZoom: 7, maxZoom: 12, opacity: 0.45, pane: 'coverage'
-      });
-      st.coverageLayer.raPriority = () => 1;
-      st.coverageLayer.on('tileunload', (e) => { e.tile._raDead = true; });
-      st.coverageLayer.addTo(map);
     }
 
     // Minutos de desplazamiento respecto al último fotograma para cada paso
@@ -427,7 +332,6 @@
       applyFutureShift(futureIdx > 0 ? fut[futureIdx - 1] : 0);
       el.classList.toggle('future', futureIdx > 0);
       renderTimeline();
-      Scheduler.pump();
       OperaQueue.pump();
     }
 
@@ -513,11 +417,9 @@
     // Leyenda
 
     function renderLegend(settings) {
-      st.legendSettings = settings;
       const t = st.t;
       const units = settings.units;
-      const rows = [[P.KIND_RAIN, t('kind.rain')]];
-      if (settings.showSnow && sourceOf() === 'rainviewer') rows.push([P.KIND_SNOW, t('kind.snow')]); // OPERA no distingue la nieve
+      const rows = [[P.KIND_RAIN, t('kind.rain')]]; // el radar no distingue la nieve
       const fmt = (mmh) => {
         const v = units.rate === 'in' ? mmh / 25.4 : mmh;
         if (v < 0.1) return v.toFixed(units.rate === 'in' ? 3 : 2).replace(/^0/, '');
@@ -612,7 +514,6 @@
       setBase, setFrames, setRadarOptions, setMotion, setLocations, renderLegend, setLightning,
       play, pause, toggle, step, goLatest, goTo,
       isPlaying: () => st.playing,
-      source: () => (st.maps ? sourceOf() : null),
       focus(lat, lon, zoom) { map.setView([lat, lon], zoom || Math.max(map.getZoom(), 7)); },
       setView(center, zoom) { map.setView(center, zoom); },
       invalidate() { map.invalidateSize(); }

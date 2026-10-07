@@ -250,7 +250,7 @@ class OperaSource {
   }
 
   // ------------------------------------------------------------------
-  // Análisis: la rejilla de la caja (Web Mercator, como la de RainViewer)
+  // Análisis: la rejilla de la caja (Web Mercator, ver analysis.js)
 
   boxMap(h, box) {
     const key = `${h.geomKey}|${box.key}`;

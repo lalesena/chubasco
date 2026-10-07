@@ -11,7 +11,7 @@
 
   // En la web los datos se guardan en el navegador, no "en este ordenador".
   const sources = document.querySelector('[data-i18n="set.sourcesText"]');
-  if (sources) sources.dataset.i18n = cfg.operaProxy ? 'web.sourcesText' : 'web.sourcesTextRv';
+  if (sources) sources.dataset.i18n = 'web.sourcesText';
   if (cfg.releases) {
     $('web-download').href = cfg.releases;
     $('web-download').hidden = false;

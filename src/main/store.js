@@ -31,10 +31,7 @@ const DEFAULTS = {
     units: { rate: 'mm', distance: 'km' },
     baseMap: 'auto',
     radarOpacity: 0.8,
-    // Radar: 'auto' = OPERA en Europa y RainViewer fuera; o una fuente fija.
-    radarSource: 'auto',
     smooth: true,
-    showSnow: true,
     showCoverage: false,
     showFuture: true,
     checkIntervalMin: 5,
@@ -77,6 +74,9 @@ function load(raw) {
   data.locations = (data.locations || []).map((l) => ({ ...l, alarm: merge(clone(DEFAULT_ALARM), l.alarm || {}) }));
   // La vista de satélite desapareció (no hay imágenes libres sin clave).
   if (data.settings.baseMap === 'satellite') data.settings.baseMap = 'auto';
+  // Ajustes de la fuente anterior del radar, que ya no existen.
+  delete data.settings.radarSource;
+  delete data.settings.showSnow;
   return data;
 }
 

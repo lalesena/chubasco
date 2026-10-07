@@ -215,10 +215,7 @@
     'ui.radar': 'Radar',
     'ui.opacity': 'Opacidad',
     'ui.smooth': 'Suavizar bordes',
-    'ui.source': 'Fuente',
-    'ui.source.auto': 'Automática (OPERA en Europa)',
     'map.processed': 'datos procesados',
-    'ui.snow': 'Distinguir nieve',
     'ui.coverage': 'Mostrar cobertura del radar',
     'ui.future': 'Mostrar previsión extrapolada',
     'ui.play': 'Reproducir',
@@ -286,7 +283,7 @@
     'set.startHidden': 'Arrancar oculto en la bandeja',
     'set.closeToTray': 'Al cerrar la ventana, seguir vigilando en segundo plano',
     'set.sources': 'Datos',
-    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0) en Europa y RainViewer (uso personal) fuera de ella. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
+    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), solo en Europa. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
     'set.shortcuts': 'Atajos',
     'set.shortcutsText': 'Espacio: reproducir/pausar · ← →: fotograma · Fin: último · ⌘/Ctrl+,: ajustes',
     // Widget
@@ -319,7 +316,6 @@
     'web.alertsBlocked': 'El navegador tiene bloqueados los avisos de esta página.',
     'web.privacy': 'Privacidad',
     'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; datos procesados para el mapa y los avisos). Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.',
-    'web.sourcesTextRv': 'Radar: RainViewer. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.'
   };
 
   const en = {
@@ -525,10 +521,7 @@
     'ui.radar': 'Radar',
     'ui.opacity': 'Opacity',
     'ui.smooth': 'Smooth edges',
-    'ui.source': 'Source',
-    'ui.source.auto': 'Automatic (OPERA in Europe)',
     'map.processed': 'processed data',
-    'ui.snow': 'Distinguish snow',
     'ui.coverage': 'Show radar coverage',
     'ui.future': 'Show extrapolated forecast',
     'ui.play': 'Play',
@@ -595,7 +588,7 @@
     'set.startHidden': 'Start hidden in the tray',
     'set.closeToTray': 'Keep watching in the background when the window closes',
     'set.sources': 'Data',
-    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0) in Europe and RainViewer (personal use) elsewhere. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
+    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), Europe only. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
     'set.shortcuts': 'Shortcuts',
     'set.shortcutsText': 'Space: play/pause · ← →: frame · End: latest · ⌘/Ctrl+,: settings',
     // Widget
@@ -628,7 +621,6 @@
     'web.alertsBlocked': 'Notifications for this page are blocked in your browser.',
     'web.privacy': 'Privacy',
     'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; data processed for the map and alerts). Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.',
-    'web.sourcesTextRv': 'Radar: RainViewer. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.'
   };
 
   const DICTS = { es, en };

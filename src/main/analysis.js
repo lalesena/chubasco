@@ -8,8 +8,8 @@
  */
 const P = require('../shared/palette');
 
-// La API gratuita de RainViewer limita el zoom a 7. Con tiles de 512 px a
-// zoom 6 tenemos ~1 km/píxel, de sobra para una alarma, y menos peticiones.
+// Rejilla de análisis en Web Mercator: un mundo de 512 px a zoom 6 da
+// ~1 km por píxel, de sobra para una alarma.
 const TILE_SIZE = 512;
 const ZOOM = 6;
 const WORLD = TILE_SIZE * Math.pow(2, ZOOM);
@@ -36,8 +36,7 @@ function metersPerPixel(lat) {
 }
 
 /**
- * Caja de píxeles (en el mundo de zoom 6 / 512 px) centrada en la ubicación,
- * con los tiles que hay que descargar para cubrirla.
+ * Caja de píxeles (en el mundo de zoom 6 / 512 px) centrada en la ubicación.
  */
 function boxFor(lat, lon, radiusKm) {
   const c = project(lat, lon);
@@ -46,54 +45,11 @@ function boxFor(lat, lon, radiusKm) {
   const x0 = Math.floor(c.x) - half;
   const y0 = Math.floor(c.y) - half;
   const size = half * 2 + 1;
-  const n = Math.pow(2, ZOOM);
-  const tiles = [];
-  const ty0 = Math.max(0, Math.floor(y0 / TILE_SIZE));
-  const ty1 = Math.min(n - 1, Math.floor((y0 + size - 1) / TILE_SIZE));
-  for (let ty = ty0; ty <= ty1; ty++) {
-    for (let txRaw = Math.floor(x0 / TILE_SIZE); txRaw <= Math.floor((x0 + size - 1) / TILE_SIZE); txRaw++) {
-      tiles.push({ txRaw, tx: ((txRaw % n) + n) % n, ty });
-    }
-  }
   return {
     lat, lon, radiusKm, mpp, x0, y0, w: size, h: size,
-    cx: c.x - x0, cy: c.y - y0, tiles,
+    cx: c.x - x0, cy: c.y - y0,
     key: `${x0}:${y0}:${size}`
   };
-}
-
-/**
- * Construye la rejilla de dBZ / tipo para una caja a partir de imágenes RGBA
- * decodificadas. `getTile(tile)` devuelve {width,height,data} o null.
- */
-function buildGrid(box, getTile) {
-  const n = box.w * box.h;
-  const dbz = new Float32Array(n).fill(NaN);
-  const kind = new Uint8Array(n); // 0 nada, 1 lluvia, 2 nieve, 255 sin datos
-  let missing = 0;
-  for (const t of box.tiles) {
-    const img = getTile(t);
-    const tileX0 = t.txRaw * TILE_SIZE;
-    const tileY0 = t.ty * TILE_SIZE;
-    const gx0 = Math.max(box.x0, tileX0);
-    const gy0 = Math.max(box.y0, tileY0);
-    const gx1 = Math.min(box.x0 + box.w, tileX0 + TILE_SIZE);
-    const gy1 = Math.min(box.y0 + box.h, tileY0 + TILE_SIZE);
-    for (let gy = gy0; gy < gy1; gy++) {
-      for (let gx = gx0; gx < gx1; gx++) {
-        const i = (gy - box.y0) * box.w + (gx - box.x0);
-        if (!img) { kind[i] = 255; missing++; continue; }
-        const scale = img.width / TILE_SIZE;
-        const px = Math.min(img.width - 1, Math.floor((gx - tileX0) * scale));
-        const py = Math.min(img.height - 1, Math.floor((gy - tileY0) * scale));
-        const o = (py * img.width + px) * 4;
-        const d = img.data;
-        const c = P.classifyRGBA(d[o], d[o + 1], d[o + 2], d[o + 3]);
-        if (c.kind) { dbz[i] = c.dbz; kind[i] = c.kind; }
-      }
-    }
-  }
-  return { w: box.w, h: box.h, dbz, kind, missingFraction: missing / n };
 }
 
 function bearingDeg(dx, dy) {
@@ -651,7 +607,7 @@ function nowcast(grid, box, motion, { thresholdDbz, horizonMin = 120, stepMin = 
 
 module.exports = {
   TILE_SIZE, ZOOM, WORLD, MIN_ECHO_KM2,
-  project, unproject, metersPerPixel, boxFor, buildGrid,
+  project, unproject, metersPerPixel, boxFor,
   minPixelsFor, components, cleanGrid, staticEchoes,
   locationStats, estimateMotion, combineMotion, estimateMotionField, combineFields, velocityAt,
   intensityTrend, trendDelta, ensembleMembers, nowcast, bearingDeg, probe

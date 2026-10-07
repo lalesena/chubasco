@@ -2,20 +2,15 @@
 /*
  * Modo demostración (CHUBASCO_MOCK=1 / `npm run demo`): intercepta las
  * peticiones HTTPS y sirve datos sintéticos — una línea de tormentas que
- * avanza hacia Madrid, en RainViewer y en OPERA — para probar la interfaz y
- * las alarmas sin red.
+ * avanza hacia Madrid, en el radar OPERA — para probar la interfaz y las
+ * alarmas sin red.
  */
 const { protocol } = require('electron');
 const { PNG } = require('pngjs');
-const P = require('../shared/palette');
 const { operaFile } = require('./mock-opera');
 const { BASE_URL, DELAY } = require('./opera');
 
 const HOME = { lat: 40.4168, lon: -3.7038 };
-const STEP = 600; // 10 min
-
-const rainColors = new Map();
-for (const e of P._table) if (e.kind === P.KIND_RAIN && !rainColors.has(e.dbz)) rainColors.set(e.dbz, e.rgba);
 
 const CELLS = [
   { x0: -62, y0: 12, r: 24, peak: 44 },
@@ -47,30 +42,6 @@ function dbzAt(kmx, kmy, tMin) {
     if (v > best) best = v;
   }
   return best;
-}
-
-function radarTile(time, size, z, x, y) {
-  const png = new PNG({ width: size, height: size });
-  const world = size * Math.pow(2, z);
-  const nowS = Math.floor(Date.now() / 1000);
-  const tMin = (time - nowS) / 60;
-  const cosLat = Math.cos((HOME.lat * Math.PI) / 180);
-  for (let py = 0; py < size; py++) {
-    const gy = y * size + py;
-    const lat = (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * gy) / world)) * 180) / Math.PI;
-    const kmy = (lat - HOME.lat) * 111.2;
-    for (let px = 0; px < size; px++) {
-      const gx = x * size + px;
-      const lon = (gx / world) * 360 - 180;
-      const kmx = (lon - HOME.lon) * 111.2 * cosLat;
-      const v = dbzAt(kmx, kmy, tMin);
-      if (v < 10) continue;
-      const c = rainColors.get(Math.max(10, Math.min(65, Math.round(v))));
-      const o = (py * size + px) * 4;
-      png.data[o] = c[0]; png.data[o + 1] = c[1]; png.data[o + 2] = c[2]; png.data[o + 3] = c[3];
-    }
-  }
-  return PNG.sync.write(png);
 }
 
 // Radar OPERA: el mismo frente de tormentas en la rejilla europea.
@@ -132,22 +103,6 @@ function lightningTile(u) {
   return PNG.sync.write(png);
 }
 
-function plainTile(dark, size = 256) {
-  const png = new PNG({ width: size, height: size });
-  const bg = dark ? [27, 38, 47] : [232, 236, 239];
-  const ln = dark ? [40, 54, 66] : [214, 221, 226];
-  for (let i = 0; i < size * size; i++) {
-    const px = i % size, py = Math.floor(i / size);
-    const c = px % 64 === 0 || py % 64 === 0 ? ln : bg;
-    png.data[i * 4] = c[0]; png.data[i * 4 + 1] = c[1]; png.data[i * 4 + 2] = c[2]; png.data[i * 4 + 3] = 255;
-  }
-  return PNG.sync.write(png);
-}
-
-function emptyTile(size = 256) {
-  return PNG.sync.write(new PNG({ width: size, height: size }));
-}
-
 function json(obj) {
   return new Response(JSON.stringify(obj), { headers: { 'content-type': 'application/json' } });
 }
@@ -186,20 +141,6 @@ function forecast() {
 function install() {
   protocol.handle('https', async (req) => {
     const u = new URL(req.url);
-    if (u.host === 'api.rainviewer.com') {
-      const now = Math.floor(Date.now() / 1000);
-      const last = now - (now % STEP) - STEP;
-      const past = [];
-      for (let i = 12; i >= 0; i--) past.push({ time: last - i * STEP, path: `/v2/radar/${last - i * STEP}` });
-      return json({ version: '2.0', generated: now, host: 'https://tilecache.rainviewer.com', radar: { past, nowcast: [] }, satellite: { infrared: [] } });
-    }
-    if (u.host === 'tilecache.rainviewer.com') {
-      const parts = u.pathname.split('/').filter(Boolean);
-      if (parts[1] === 'coverage') return png(emptyTile(512));
-      // v2 radar {time} {size} {z} {x} {y} {color} {opts}.png
-      const [, , time, size, z, x, y] = parts;
-      return png(radarTile(Number(time), Number(size), Number(z), Number(x), Number(y)));
-    }
     if (u.host === OPERA_HOST) return operaResponse(req, u);
     if (u.host === 'api.open-meteo.com') return json(forecast());
     if (u.host === 'geocoding-api.open-meteo.com') {

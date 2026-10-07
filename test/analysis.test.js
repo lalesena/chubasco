@@ -4,40 +4,31 @@ const assert = require('node:assert');
 const A = require('../src/main/analysis');
 const P = require('../src/shared/palette');
 
-const RAIN30 = [0x00, 0x55, 0x88, 0xff];  // 30 dBZ, Universal Blue
-const RAIN40 = [0xff, 0xaa, 0x00, 0xff];  // 40 dBZ
-const SNOW20 = [0x7f, 0xbf, 0xff, 0xff];  // nieve 20 dBZ
+const RAIN30 = 30, RAIN40 = 40; // dBZ
 
-// Genera tiles sintéticos: blobs circulares (centro en px globales, radio px).
-function makeTiles(box, blobs) {
-  const map = new Map();
-  for (const t of box.tiles) {
-    const data = Buffer.alloc(A.TILE_SIZE * A.TILE_SIZE * 4);
-    for (let y = 0; y < A.TILE_SIZE; y++) {
-      for (let x = 0; x < A.TILE_SIZE; x++) {
-        const gx = t.txRaw * A.TILE_SIZE + x, gy = t.ty * A.TILE_SIZE + y;
-        for (const b of blobs) {
-          const d = Math.hypot(gx - b.x, gy - b.y);
-          if (d <= b.r) {
-            const c = b.core && d <= b.r * 0.4 ? b.core : b.color;
-            const o = (y * A.TILE_SIZE + x) * 4;
-            data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = c[3];
-          }
-        }
+// Rejilla sintética: manchas circulares (centro en px globales, radio px).
+function makeGrid(box, blobs) {
+  const n = box.w * box.h;
+  const dbz = new Float32Array(n).fill(NaN);
+  const kind = new Uint8Array(n);
+  for (let y = 0; y < box.h; y++) {
+    for (let x = 0; x < box.w; x++) {
+      const gx = box.x0 + x, gy = box.y0 + y;
+      for (const b of blobs) {
+        const d = Math.hypot(gx - b.x, gy - b.y);
+        if (d > b.r) continue;
+        const v = b.core && d <= b.r * 0.4 ? b.core : b.color;
+        const i = y * box.w + x;
+        if (!(dbz[i] >= v)) { dbz[i] = v; kind[i] = P.KIND_RAIN; }
       }
     }
-    map.set(`${t.tx}/${t.ty}`, { width: A.TILE_SIZE, height: A.TILE_SIZE, data });
   }
-  return (t) => map.get(`${t.tx}/${t.ty}`);
+  return { w: box.w, h: box.h, dbz, kind, missingFraction: 0 };
 }
 
 const MADRID = { lat: 40.4168, lon: -3.7038 };
 
-test('paleta: colores exactos se clasifican bien', () => {
-  assert.deepStrictEqual(P.classifyRGBA(...RAIN30), { dbz: 30, kind: P.KIND_RAIN });
-  assert.deepStrictEqual(P.classifyRGBA(...RAIN40), { dbz: 40, kind: P.KIND_RAIN });
-  assert.deepStrictEqual(P.classifyRGBA(...SNOW20), { dbz: 20, kind: P.KIND_SNOW });
-  assert.strictEqual(P.classifyRGBA(0, 0, 0, 0).kind, P.KIND_NONE);
+test('dBZ ↔ mm/h', () => {
   // Marshall-Palmer: 30 dBZ ≈ 2,7 mm/h
   assert.ok(Math.abs(P.dbzToRate(30, P.KIND_RAIN) - 2.73) < 0.05);
 });
@@ -63,7 +54,7 @@ test('lluvia al oeste que se mueve hacia el este: distancia, rumbo, velocidad y 
       // Otro eco lejano al sur para dar textura (se mueve igual).
       { x: c.x + (offsetKm + 10) * kmPx, y: c.y + 70 * kmPx, r: 8 * kmPx, color: RAIN30 }
     ];
-    const g = A.buildGrid(box, makeTiles(box, blobs));
+    const g = makeGrid(box, blobs);
     g.time = 1000 + k * 600;
     grids.push(g);
   }
@@ -98,10 +89,10 @@ test('lloviendo en la ubicación: nowcast con fin estimado', () => {
     // Blob de 10 km de radio moviéndose al norte a 24 km/h (4 km cada 10 min),
     // centrado 4 km al norte de la ubicación en el último fotograma.
     const northKm = 4 - (2 - k) * 4;
-    const g = A.buildGrid(box, makeTiles(box, [
+    const g = makeGrid(box, [
       { x: c.x, y: c.y - northKm * kmPx, r: 10 * kmPx, color: RAIN30 },
       { x: c.x + 50 * kmPx, y: c.y + (30 - northKm) * kmPx, r: 6 * kmPx, color: RAIN30 }
-    ]));
+    ]);
     g.time = k * 600;
     grids.push(g);
   }
@@ -119,7 +110,7 @@ test('lloviendo en la ubicación: nowcast con fin estimado', () => {
 
 test('sin ecos: sin movimiento ni ETA', () => {
   const box = A.boxFor(MADRID.lat, MADRID.lon, 90);
-  const g = A.buildGrid(box, makeTiles(box, []));
+  const g = makeGrid(box, []);
   assert.strictEqual(A.estimateMotion(g, g, box, 10), null);
   const nc = A.nowcast(g, box, null, { thresholdDbz: 18 });
   assert.strictEqual(nc.etaMin, null);
@@ -127,8 +118,11 @@ test('sin ecos: sin movimiento ni ETA', () => {
   assert.strictEqual(s.nearest, null);
 });
 
-test('tile que falla se marca como sin datos', () => {
+test('sin datos alrededor: la ubicación no tiene cobertura', () => {
   const box = A.boxFor(MADRID.lat, MADRID.lon, 90);
-  const g = A.buildGrid(box, () => null);
-  assert.strictEqual(g.missingFraction, 1);
+  const g = makeGrid(box, []);
+  g.kind.fill(255);
+  const s = A.locationStats(g, box, { alarmRadiusKm: 25, thresholdDbz: 18 });
+  assert.strictEqual(s.atLocation.hasData, false);
+  assert.strictEqual(s.missingFraction, 1);
 });

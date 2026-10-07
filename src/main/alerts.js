@@ -50,8 +50,8 @@ function resetEpisode(s) {
   delete s.lastLevelIdx.inRadius;
 }
 
-// Tramo mínimo entre fotogramas (s): dos de RainViewer (cada 10 min) o tres
-// de OPERA (cada 5 min) cubren lo mismo.
+// Tramo mínimo entre el primer y el último fotograma (s): OPERA publica cada
+// 5 min, así que hacen falta tres fotogramas para cubrir ~10 min.
 const SPAN_S = 9 * 60;
 
 function levelIdx(dbz) { return LEVEL_ORDER.indexOf(P.levelOf(dbz)); }

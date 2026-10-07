@@ -18,9 +18,8 @@
   const link = (href, text) => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
   // Atribución en otras webs: OPERA pide autoría y licencia (CC BY 4.0). En
   // el tamaño pequeño, la forma corta (la web enlazada la da completa).
-  const credit = (source) => [
-    source === 'rainviewer' ? link('https://www.rainviewer.com/', 'RainViewer')
-      : link('https://www.eumetnet.eu/', size() === 'small' ? 'OPERA' : 'EUMETNET OPERA') + ' ' + link('https://creativecommons.org/licenses/by/4.0/', 'CC BY'),
+  const credit = () => [
+    link('https://www.eumetnet.eu/', size() === 'small' ? 'OPERA' : 'EUMETNET OPERA') + ' ' + link('https://creativecommons.org/licenses/by/4.0/', 'CC BY'),
     link('https://open-meteo.com/', 'Open-Meteo'),
     link('https://www.eumetsat.int/', 'EUMETSAT')
   ].join(' · ');
@@ -105,10 +104,6 @@
     const r = st && st.radar;
     $('w-meta').textContent = r && r.ok ? D.fmtClock(t, r.frameTime * 1000) : '';
     $('w-meta').title = r && r.ok ? t('mini.radar', { time: $('w-meta').textContent }) : '';
-    if (S.embed && r && r.ok && r.source !== S.creditSource) {
-      S.creditSource = r.source;
-      $('w-credit').innerHTML = credit(r.source);
-    }
   }
 
   /** Otra ubicación en el widget: si sigue a la de la app, cambia la de la app. */
@@ -152,7 +147,7 @@
   function wireEmbed() {
     const root = $('w');
     $('w-more').remove();
-    $('w-credit').innerHTML = credit(null);
+    $('w-credit').innerHTML = credit();
     root.tabIndex = 0;
     root.setAttribute('role', 'link');
     const open = () => window.open(S.embed.appUrl, '_blank', 'noopener');
