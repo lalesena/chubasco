@@ -1,26 +1,26 @@
 # Chubasco — alarma de lluvia para escritorio
 
-App de escritorio para **macOS y Windows** que vigila el radar de lluvia en tus ubicaciones y te avisa antes de que llegue el agua. Tiene **widget de escritorio** y una **versión web** que se puede insertar en otras páginas. Está inspirada en [rain-alarm.com](https://www.rain-alarm.com/), pero hace varias cosas que la web no hace.
+App de escritorio para **macOS y Windows** que vigila el radar de lluvia en tus ubicaciones y te avisa antes de que llegue el agua. Tiene **widget de escritorio** y una **versión web** que se puede insertar en otras páginas.
 
 ![Chubasco en modo demostración](docs/captura.png)
 
-## Qué mejora respecto a rain-alarm.com
+## Qué hace
 
-| | rain-alarm.com (web) | Chubasco |
-|---|---|---|
-| Vigilancia en segundo plano | Solo con la pestaña o la app móvil abiertas | Vive en la barra de menú (Mac) o en la bandeja (Windows) y avisa con la ventana cerrada. Un clic en el icono abre un **mini panel** con el estado, la ventana seca y la gráfica de 2 h. Puede abrirse al iniciar sesión |
-| Previsión del radar | Fotogramas pasados | Calcula **dirección, velocidad y hora de llegada** comparando los últimos fotogramas, con movimiento distinto por zonas. Da una **probabilidad** («lluvia en ~20 min, 70 %, entre 15 y 25») y muestra la previsión animada hasta +60 min sobre el mapa |
-| Previsión combinada | — | Una sola curva: radar al principio y modelo después, con paso gradual. De ahí sale la **ventana seca** («seco hasta las 22:30», «para hacia las 21:40; después, seco hasta…») |
-| Avisos | Lluvia dentro de un radio | Lluvia en el radio, lluvia inminente («en ~15 min», con la probabilidad mínima que elijas), empieza y deja de llover, aviso del modelo, **rayos cerca**, **tormenta fuerte** (posible granizo), **resumen diario** y **«avísame cuando pare»** (cuando haya al menos 15, 30 o 60 min secos). Incluye anti-spam, horas de silencio y «posponer» desde la bandeja. Opcionalmente, también **en el móvil** con ntfy |
-| Trayectos | — | Casa → trabajo a las 8:15 de lunes a viernes: media hora antes te dice si lloverá en el camino (en qué tramo) y, si salir algo antes o después mejora mucho, a qué hora |
-| Rayos | De pago | Actividad eléctrica vista por el satélite Meteosat-12 (Europa y África): iconos de rayo blancos en el mapa (más tenues cuanto más antiguos) y aviso si hay rayos cerca |
-| Precisión | — | La app **se autoevalúa**: compara cada previsión con lo que el radar ve después y muestra aciertos, falsas alarmas y error de la hora de llegada de cada ubicación. Con datos suficientes **se calibra sola** |
-| Ubicaciones | Una | Varias (casa, trabajo…), cada una con su radio y su intensidad mínima, y una opcional «Aquí» que sigue al equipo |
-| Previsión del modelo | De pago | Gratis: precipitación cada 15 min (2 h) y por horas (24 h) de Open-Meteo |
-| Mapas claro, oscuro y callejero | De pago | Incluidos (OpenFreeMap, sin clave), con las etiquetas del mapa por encima del radar |
-| Widget | — | **Widget de escritorio** (Mac y Windows) en tres tamaños, que se queda donde lo pongas, y **widget para insertar en cualquier web** con un `<iframe>` |
-| Web | La propia web | **Versión web** con la misma interfaz y el mismo análisis, que funciona también en el móvil |
-| Otros | — | Historial de avisos, eco más cercano y flecha de movimiento en el mapa, mm/h o in/h, km o mi, español e inglés, atajos de teclado, sin cuentas ni anuncios |
+| | |
+|---|---|
+| Vigilancia en segundo plano | Vive en la barra de menú (Mac) o en la bandeja (Windows) y avisa con la ventana cerrada. Un clic en el icono abre un **mini panel** con el estado, la ventana seca y la gráfica de 2 h. Puede abrirse al iniciar sesión |
+| Previsión del radar | Calcula **dirección, velocidad y hora de llegada** comparando los últimos fotogramas, con movimiento distinto por zonas. Da una **probabilidad** («lluvia en ~20 min, 70 %, entre 15 y 25») y muestra la previsión animada hasta +60 min sobre el mapa |
+| Previsión combinada | Una sola curva: radar al principio y modelo después, con paso gradual. De ahí sale la **ventana seca** («seco hasta las 22:30», «para hacia las 21:40; después, seco hasta…») |
+| Avisos | Lluvia en el radio, lluvia inminente («en ~15 min», con la probabilidad mínima que elijas), empieza y deja de llover, aviso del modelo, **rayos cerca**, **tormenta fuerte** (posible granizo), **resumen diario** y **«avísame cuando pare»** (cuando haya al menos 15, 30 o 60 min secos). Incluye anti-spam, horas de silencio y «posponer» desde la bandeja. Opcionalmente, también **en el móvil** con ntfy |
+| Trayectos | Casa → trabajo a las 8:15 de lunes a viernes: media hora antes te dice si lloverá en el camino (en qué tramo) y, si salir algo antes o después mejora mucho, a qué hora |
+| Rayos | Actividad eléctrica vista por el satélite Meteosat-12 (Europa y África): iconos de rayo blancos en el mapa (más tenues cuanto más antiguos) y aviso si hay rayos cerca |
+| Precisión | La app **se autoevalúa**: compara cada previsión con lo que el radar ve después y muestra aciertos, falsas alarmas y error de la hora de llegada de cada ubicación. Con datos suficientes **se calibra sola** |
+| Ubicaciones | Varias (casa, trabajo…), cada una con su radio y su intensidad mínima, y una opcional «Aquí» que sigue al equipo |
+| Previsión del modelo | Gratis: precipitación cada 15 min (2 h) y por horas (24 h) de Open-Meteo |
+| Mapas claro, oscuro y callejero | Incluidos (OpenFreeMap, sin clave), con las etiquetas del mapa por encima del radar |
+| Widget | **Widget de escritorio** (Mac y Windows) en tres tamaños, que se queda donde lo pongas, y **widget para insertar en cualquier web** con un `<iframe>` |
+| Web | **Versión web** con la misma interfaz y el mismo análisis, que funciona también en el móvil |
+| Otros | Historial de avisos, eco más cercano y flecha de movimiento en el mapa, mm/h o in/h, km o mi, español e inglés, atajos de teclado, sin cuentas ni anuncios |
 
 Hay una limitación honesta. Con datos de radar gratuitos solo se distingue **lluvia y nieve**: granizo y lluvia helada no se distinguen (el aviso de tormenta fuerte es una señal, no un detector de granizo). Además, en zonas sin cobertura de radar el mapa queda vacío. Ahí conviene activar «El modelo prevea lluvia en la próxima hora».
 
