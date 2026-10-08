@@ -9,15 +9,39 @@ const { pathToFileURL } = require('url');
 const CUENCAS = require('../src/shared/cuencas');
 const lib = () => import(pathToFileURL(path.join(__dirname, '../scripts/agua/lib.mjs')).href);
 
-test('cuencas: peninsulares y Baleares, con los ámbitos del Boletín Hidrológico', () => {
+const CANARIAS = { ES127: 269, ES125: 708, ES126: 370, ES124: 2034, ES120: 1560, ES122: 1660, ES123: 846 }; // km² reales de cada isla
+
+test('cuencas: península, Baleares, Ceuta, Melilla y Canarias, con los ámbitos del Boletín Hidrológico', () => {
   const ids = CUENCAS.basins.map((b) => b.id);
-  assert.equal(new Set(ids).size, 16);
-  assert.ok(ids.includes('ES091') && ids.includes('ES110') && !ids.some((id) => id.startsWith('ES12')));
+  assert.equal(new Set(ids).size, 25);
+  assert.ok(ids.includes('ES091') && ids.includes('ES110') && ids.includes('ES150') && ids.includes('ES160'));
   const ambitos = CUENCAS.basins.flatMap((b) => b.ambitos);
-  assert.equal(ambitos.length, 16, 'los 16 ámbitos del boletín');
+  assert.equal(ambitos.length, 16, 'los 16 ámbitos del boletín: lo nuevo no tiene embalses');
+  assert.equal(new Set(ambitos).size, 16);
   assert.ok(CUENCAS.basins.find((b) => b.id === 'ES017').ambitos.includes('Cuencas Internas del País Vasco'));
   const duero = CUENCAS.basins.find((b) => b.id === 'ES020');
   assert.ok(Math.abs(duero.areaKm2 - 78859) / 78859 < 0.01, `Duero ${duero.areaKm2} km²`);
+  // Cada cuenca trae todo lo que la app lee y polígonos cerrados con [lon, lat].
+  for (const b of CUENCAS.basins) {
+    assert.ok(/^ES\d{3}$/.test(b.id) && b.name && b.nameEn && Array.isArray(b.ambitos) && b.areaKm2 > 0 && b.polygons.length, b.id);
+    for (const poly of b.polygons) for (const ring of poly) {
+      assert.ok(ring.length >= 4 && ring.every(([x, y]) => x > -19 && x < 5 && y > 27 && y < 44.5), `${b.id}: anillo fuera de España`);
+    }
+  }
+});
+
+test('cuencas: Canarias, sin radar y sin embalses; Ceuta y Melilla, con radar', () => {
+  const by = Object.fromEntries(CUENCAS.basins.map((b) => [b.id, b]));
+  assert.deepEqual(CUENCAS.basins.filter((b) => b.radar === false).map((b) => b.id).sort(), Object.keys(CANARIAS).sort());
+  for (const [id, km2] of Object.entries(CANARIAS)) {
+    const b = by[id];
+    assert.ok(Math.abs(b.areaKm2 - km2) / km2 < 0.15, `${b.name} ${b.areaKm2} km² frente a ${km2}`);
+    assert.deepEqual(b.ambitos, []);
+    assert.ok(b.polygons.every((poly) => poly[0].every(([x, y]) => x < -13 && y < 29.5)), `${b.name} fuera de Canarias`);
+  }
+  for (const id of ['ES150', 'ES160']) assert.ok(by[id] && by[id].radar !== false && by[id].areaKm2 > 5 && by[id].areaKm2 < 60, id);
+  assert.ok(by.ES150.polygons[0][0].every(([x, y]) => x < -5.2 && y > 35.8 && y < 36), 'Ceuta');
+  assert.ok(by.ES160.polygons[0][0].every(([x, y]) => x > -3.1 && x < -2.8 && y > 35.2 && y < 35.4), 'Melilla');
 });
 
 test('máscaras: los píxeles de 2 km de cada cuenca suman su superficie', async () => {
@@ -29,6 +53,11 @@ test('máscaras: los píxeles de 2 km de cada cuenca suman su superficie', async
     if (area < 4000) continue; // en las pequeñas pesa más el borde
     assert.ok(Math.abs(b.pixels.length * px - area) / area < 0.02, `${b.id}: ${b.pixels.length * px} frente a ${area} km²`);
   }
+  // Canarias no tiene máscara (fuera de la rejilla); Ceuta y Melilla sí, y dentro de ella.
+  const ids = m.basins.map((b) => b.id);
+  assert.ok(!ids.some((id) => CANARIAS[id]) && ids.length === 25 - 7);
+  for (const id of ['ES150', 'ES160']) assert.ok(m.basins.find((b) => b.id === id).pixels.length >= 2, `${id} sin píxeles`);
+  assert.ok(m.window.c0 >= 0 && m.window.c1 < GRID.width && m.window.r0 >= 0 && m.window.r1 < GRID.height);
   // Ningún píxel en dos cuencas.
   const seen = new Set();
   for (const b of m.basins) for (const i of b.pixels) { assert.ok(!seen.has(i), `píxel ${i} repetido`); seen.add(i); }
@@ -46,6 +75,66 @@ test('lluvia: media por cuenca, cobertura y suma de horas', async () => {
   assert.equal(sum.A[0], 3);
   // B solo tiene una de dos horas: no llega al 80 % y queda sin valor.
   assert.equal(sum.B[0], null);
+});
+
+test('lluvia sin radar: media de los pluviómetros de cada cuenca y serie de 30 días', async () => {
+  const { gaugeRain, basinAt } = await lib();
+  const sq = (x0, y0, x1, y1) => [[[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]];
+  const list = [
+    { id: 'I1', radar: false, polygons: sq(-17, 28, -16, 29) },
+    { id: 'I2', radar: false, polygons: sq(-15, 28, -14, 29) },
+    { id: 'I3', radar: false, polygons: sq(-13, 29, -12, 30) }, // sin pluviómetros
+    { id: 'P', polygons: sq(-5, 40, -4, 41) } // con radar: no se toca
+  ];
+  // [id, nombre, lat, lon, 1 h, 24 h, 7 d, 30 d, año, temperatura]
+  const row = (id, lon, lat, v) => [id, id, lat, lon, 0, ...v, 20];
+  const stations = [
+    row('A', -16.5, 28.5, [10, 20, 40, 100]),
+    row('B', -16.2, 28.2, [20, null, 60, 200]),
+    row('C', -14.99, 28.5, [5, 5, 5, 5]), // un poco mar adentro: cuenta
+    row('D', -4.5, 40.5, [99, 99, 99, 99]), // en una cuenca con radar
+    row('E', -10, 25, [99, 99, 99, 99]) // en ninguna
+  ];
+  const until = '2026-10-08T09:00:00.000Z';
+  const summary = { until, periodsUntil: '2026-10-08T07:00:00.000Z', stations };
+  const nowMs = Date.UTC(2026, 9, 8, 9, 20);
+  const H = 3600000;
+  const archive = {
+    hourly: { t0: Date.parse(until) - 239 * H, data: { A: { prec: new Array(240).fill(0.5) }, B: { prec: new Array(240).fill(0.5) } } },
+    // Días de 10 sep a 4 oct: A, 1 mm; B, 3 mm; el 4 de octubre, 4 y 2 mm.
+    daily: { d0: '2026-09-10', n: 25, data: { A: { prec: [...new Array(24).fill(1), 4] }, B: { prec: [...new Array(24).fill(3), 2] } } }
+  };
+  const out = gaugeRain(list, summary, archive, nowMs);
+  assert.deepEqual(Object.keys(out).sort(), ['I1', 'I2'], 'sin pluviómetros o con radar: no salen');
+  const a = out.I1;
+  assert.deepEqual([a.h24, a.d7, a.d30, a.year], [15, 20, 50, 150], 'media de los que tienen valor');
+  assert.equal(a.n, 2);
+  assert.equal(a.source, 'gauges');
+  assert.equal(a.cover, null);
+  assert.equal(a.until, summary.periodsUntil);
+  assert.equal(a.serie.length, 30);
+  assert.equal(a.serie[0], null, '9 sep: ni día ni horas guardadas');
+  assert.equal(a.serie[1], 2, '10 sep: media de 1 y 3 mm');
+  assert.equal(a.serie[25], 3, '4 oct: media de 4 y 2 mm');
+  assert.deepEqual(a.serie.slice(26, 29), [12, 12, 12], '5–7 oct: sin día de AEMET, con las horas (24 × 0,5 mm)');
+  assert.equal(a.serie[29], 4.5, 'hoy: 9 horas');
+  assert.equal(out.I2.n, 1);
+  assert.equal(out.I2.h24, 5);
+  assert.ok(out.I2.serie.every((v) => v === null), 'sin datos propios: serie vacía');
+  // Sin pluviómetros, sin archivo o sin cuencas sin radar.
+  assert.deepEqual(gaugeRain(list, null, archive, nowMs), {});
+  assert.deepEqual(gaugeRain(list.slice(3), summary, archive, nowMs), {});
+  const nothing = gaugeRain(list, { ...summary, stations: [row('A', -16.5, 28.5, [null, null, null, null])] }, { hourly: null, daily: null }, nowMs);
+  assert.deepEqual(nothing, {}, 'ningún valor: la cuenca no sale');
+  // Con los límites reales de Canarias.
+  const islands = CUENCAS.basins.filter((b) => b.radar === false);
+  const at = (lon, lat) => basinAt(islands, lon, lat);
+  assert.equal(at(-16.499, 28.309), 'ES124', 'Izaña, Tenerife');
+  assert.equal(at(-13.6, 28.953), 'ES123', 'Aeropuerto de Lanzarote');
+  assert.equal(at(-15.387, 27.932), 'ES120', 'Aeropuerto de Gran Canaria (en la costa)');
+  assert.equal(at(-17.76, 28.68), 'ES125', 'Santa Cruz de La Palma');
+  assert.equal(at(-3.7, 40.4), null, 'Madrid');
+  assert.equal(at(-16.5, 29.5), null, 'en el mar, lejos de la costa');
 });
 
 test('año hidrológico: empieza el 1 de octubre', async () => {

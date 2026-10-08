@@ -765,6 +765,8 @@ body.widget { background: transparent; overflow: hidden; }
 .seg button:hover { color: var(--ink); }
 .seg button[aria-pressed='true'] { background: var(--accent); color: #fff; }
 .seg.small button { font-size: 12px; padding: 4px 4px; }
+.agua-zone { position: absolute; top: 12px; left: 12px; z-index: 900; box-shadow: 0 2px 8px rgb(0 0 0 / 0.12); }
+.agua-zone button { padding: 4px 10px; }
 .agua-list-head { display: grid; grid-template-columns: 1fr 92px 60px; gap: 6px; font-size: 11px; color: var(--faint); padding: 0 6px 4px 22px; }
 .agua-list-head span:not(:first-child) { text-align: right; }
 .agua-list, .agua-res { list-style: none; margin: 0; padding: 0; }

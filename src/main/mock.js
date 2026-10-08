@@ -138,6 +138,12 @@ function aguaDemo() {
   basins.forEach((b, i) => {
     const serie = Array.from({ length: 30 }, (_, k) => Math.round(Math.max(0, 12 * Math.sin(k / 3 + i) - 4) * 10) / 10);
     rain.basins[b.id] = { h24: serie[29], d7: Math.round(serie.slice(-7).reduce((a, x) => a + x, 0)), d30: Math.round(serie.reduce((a, x) => a + x, 0)), year: Math.round(serie.slice(-8).reduce((a, x) => a + x, 0)), cover: 0.97, serie };
+    // Canarias (sin radar): la media de sus pluviómetros, como en datos.mjs.
+    if (b.radar === false) {
+      const rows = pluvioDemo().stations.filter((g, k) => k >= 70 && CANARY_GAUGES[k - 70][0] === b.id);
+      const mean = (col) => Math.round((10 * rows.reduce((t, g) => t + g[col], 0)) / rows.length) / 10;
+      Object.assign(rain.basins[b.id], { h24: mean(5), d7: mean(6), d30: mean(7), year: mean(8), cover: null, source: 'gauges', n: rows.length, until: rain.until });
+    }
   });
   return { updated: new Date(now).toISOString(), sources: {}, rain, reservoirs: res };
 }
@@ -162,6 +168,17 @@ function aguaHistDemo(id) {
   return { date: weekDates[52], weekDates, total: { m0: '1988-01', m: Array.from({ length: 12 * 38 + 9 }, (_, k) => Math.round(55 + 20 * Math.sin(k / 9) * Math.cos(k / 60))) }, res };
 }
 
+// Pluviómetros de Canarias de la demo: [cuenca, nombre, lat, lon], dos por isla.
+const CANARY_GAUGES = [
+  ['ES127', 'El Hierro Aeropuerto', 27.815, -17.887], ['ES127', 'Frontera', 27.76, -18.0],
+  ['ES125', 'Santa Cruz de La Palma', 28.68, -17.76], ['ES125', 'El Paso', 28.65, -17.88],
+  ['ES126', 'San Sebastián de La Gomera', 28.09, -17.11], ['ES126', 'Vallehermoso', 28.18, -17.26],
+  ['ES124', 'Izaña', 28.31, -16.5], ['ES124', 'Tenerife Norte', 28.48, -16.34], ['ES124', 'Tenerife Sur', 28.04, -16.56],
+  ['ES120', 'Gran Canaria Aeropuerto', 27.93, -15.39], ['ES120', 'Cruz de Tejeda', 27.99, -15.61],
+  ['ES122', 'Fuerteventura Aeropuerto', 28.45, -13.86], ['ES122', 'Morro Jable', 28.05, -14.35],
+  ['ES123', 'Lanzarote Aeropuerto', 28.95, -13.6], ['ES123', 'Teguise', 29.06, -13.56]
+];
+
 // Pluviómetros, con la forma de pluvio.json: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días, desde el 1 oct, temperatura].
 function pluvioDemo() {
   const stations = [];
@@ -170,7 +187,12 @@ function pluvioDemo() {
     const wet = Math.max(0, Math.sin(i * 0.7) * 18);
     stations.push([`D${i}`, `Estación ${i + 1}`, Math.round(lat * 1e4) / 1e4, Math.round(lon * 1e4) / 1e4, i % 5 === 0 ? Math.round(wet / 4) / 2 : 0, Math.round(wet * 10) / 10, Math.round(wet * 25) / 10, Math.round(wet * 60) / 10, Math.round(wet * 30) / 10, Math.round(150 + 60 * Math.sin(i)) / 10]);
   }
-  return { source: '© AEMET', until: new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString(), stations };
+  CANARY_GAUGES.forEach(([, name, lat, lon], i) => {
+    const wet = 2 + (i % 5) * 4;
+    stations.push([`C${i}`, name, lat, lon, i % 4 === 0 ? 0.4 : 0, Math.round(wet * 10) / 10, Math.round(wet * 25) / 10, Math.round(wet * 60) / 10, Math.round(wet * 30) / 10, Math.round(210 + 30 * Math.sin(i)) / 10]);
+  });
+  const until = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+  return { source: '© AEMET', until, periodsUntil: until, stations };
 }
 
 // Ficha de un pluviómetro, con la forma de pluvio/<id>.json.

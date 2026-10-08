@@ -15,7 +15,9 @@
  * Fuentes (las dos permiten reutilizar los datos citándolas):
  *  - Lluvia: radar EUMETNET OPERA, acumulación horaria (ACRR, 2 km), CC BY 4.0.
  *    Las últimas horas, del GeoTIFF del almacén de 24 h (solo los mosaicos
- *    de la península); los días que falten, del archivo (HDF5).
+ *    de la península); los días que falten, del archivo (HDF5). Canarias
+ *    queda fuera de la rejilla del radar: su lluvia es la media de los
+ *    pluviómetros de AEMET de cada isla (gaugeRain, en lib.mjs).
  *  - Embalses: MITECO, Boletín Hidrológico semanal (BD-Embalses), que se
  *    descarga solo cuando cambia (los martes).
  *  - Pluviómetros: AEMET OpenData, observación horaria de las estaciones
@@ -31,12 +33,13 @@ import { unzipSync } from 'fflate';
 import MDBReader from 'mdb-reader';
 import * as hdf5 from 'jsfive';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory } from './lib.mjs';
+import { GRID, hasRadar, buildMasks, basinHour, sumHours, hydroYearStart, gaugeRain, summarizeReservoirs, reservoirHistory } from './lib.mjs';
 import * as P from './pluvio.mjs';
 
 const require = createRequire(import.meta.url);
 const TIFF = require('../../src/main/tiff.js');
 const CUENCAS = require('../../src/shared/cuencas.js');
+const RADAR = CUENCAS.basins.filter(hasRadar); // las que cubre el radar (sin Canarias)
 
 const [OUT, PREV] = process.argv.slice(2);
 if (!OUT) { console.error('Uso: node scripts/agua/datos.mjs <salida> [<estado anterior>]'); process.exit(2); }
@@ -135,12 +138,14 @@ async function hourFromH5(t) {
 }
 
 async function rainfall(state, masks, now) {
+  // Un valor guardado vale si trae todas las cuencas (al añadir una, se repasa lo ya guardado).
+  const full = (x) => !!x && RADAR.every((b) => x[b.id]);
   // 1. Horas recientes (las que terminan en punto), del GeoTIFF.
   const hours = { ...(state.hours || {}) };
   const latest = Math.floor((now - 20 * 60) / HOUR) * HOUR; // ~20 min de retraso
   for (let t = latest; t > latest - KEEP_HOURS * HOUR; t -= HOUR) {
     const k = hourKey(t);
-    if (hours[k] && t < latest - 2 * HOUR) continue; // las tres últimas se repasan por si llegaron tarde
+    if (full(hours[k]) && t < latest - 2 * HOUR) continue; // las tres últimas se repasan por si llegaron tarde
     try {
       const get = (await hourFromTiff(t, masks.window)) || (await hourFromH5(t));
       if (get) { hours[k] = basinHour(get, masks); log('hora', k); }
@@ -156,9 +161,9 @@ async function rainfall(state, masks, now) {
   let fromArchive = 0;
   for (let d = dayStart(today) - 86400; d >= firstDay; d -= 86400) {
     const k = dayKey(d);
-    if (days[k]) continue;
+    if (full(days[k])) continue;
     const hourly = [];
-    for (let h = 1; h <= 24; h++) hourly.push(hours[hourKey(d + h * HOUR)] || null);
+    for (let h = 1; h <= 24; h++) { const x = hours[hourKey(d + h * HOUR)]; hourly.push(full(x) ? x : null); }
     if (hourly.some((x) => !x)) {
       if (fromArchive >= MAX_NEW_DAYS) continue;
       fromArchive++;
@@ -173,7 +178,7 @@ async function rainfall(state, masks, now) {
     }
     const got = hourly.filter(Boolean);
     if (got.length < 22) { log('día incompleto', k, got.length); continue; }
-    days[k] = sumHours(got, 24 / got.length, CUENCAS.basins);
+    days[k] = sumHours(got, 24 / got.length, RADAR);
   }
   for (const k of Object.keys(days)) if (dayStart(k) < firstDay) delete days[k];
 
@@ -186,11 +191,11 @@ async function rainfall(state, masks, now) {
     const x = hours[hourKey(t)];
     if (x) { last24.push(x); if (t > dayStart(today)) todayHours.push(x); }
   }
-  const h24 = last24.length >= 20 ? sumHours(last24, 24 / last24.length, CUENCAS.basins) : null;
-  const hoy = todayHours.length ? sumHours(todayHours, 1, CUENCAS.basins) : {};
+  const h24 = last24.length >= 20 ? sumHours(last24, 24 / last24.length, RADAR) : null;
+  const hoy = todayHours.length ? sumHours(todayHours, 1, RADAR) : {};
   const sumDays = (from) => {
     const out = {};
-    for (const b of CUENCAS.basins) {
+    for (const b of RADAR) {
       let mm = hoy[b.id] ? hoy[b.id][0] || 0 : 0, n = 0, need = 0;
       for (let d = dayStart(today) - 86400; d >= from; d -= 86400) {
         need++;
@@ -205,7 +210,7 @@ async function rainfall(state, masks, now) {
   const d30 = sumDays(dayStart(today) - 29 * 86400);
   const year = sumDays(dayStart(hydroStart));
   const basins = {};
-  for (const b of CUENCAS.basins) {
+  for (const b of RADAR) {
     const serie = [];
     for (let d = dayStart(today) - 29 * 86400; d < dayStart(today); d += 86400) {
       const v = days[dayKey(d)] && days[dayKey(d)][b.id];
@@ -345,11 +350,14 @@ try {
   archive = await gauges(archive, now);
 } catch (e) { log('pluviómetros:', e.stack || e.message); errors.gauges = String((e.cause && e.cause.code) || e.message || e); }
 const pluvio = P.summarize(archive, now * 1000);
+// Canarias queda fuera del radar: su lluvia es la media de sus pluviómetros.
+const porPluvio = pluvio ? gaugeRain(CUENCAS.basins, pluvio, archive, now * 1000) : {};
+if (Object.keys(porPluvio).length) lluvia = { until: null, hydroYearStart: hydroYearStart(now), ...lluvia, basins: { ...(lluvia && lluvia.basins), ...porPluvio } };
 
 const agua = {
   updated: new Date(now * 1000).toISOString(),
   sources: {
-    rain: 'EUMETNET OPERA (CC BY 4.0), estimación por radar',
+    rain: 'EUMETNET OPERA (CC BY 4.0), estimación por radar; en Canarias, que el radar no cubre, la media de los pluviómetros de AEMET',
     reservoirs: 'MITECO – Boletín Hidrológico semanal',
     basins: CUENCAS.attribution,
     gauges: '© AEMET (información elaborada por la Agencia Estatal de Meteorología)'

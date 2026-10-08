@@ -19,9 +19,12 @@ const MIN_COVER = 0.5; // por debajo, la hora de esa cuenca no cuenta
 // del polígono proyectado, regla par-impar). Los límites simplificados se
 // solapan un poco en las fronteras: cada píxel cuenta solo para una cuenca.
 
+// Las cuencas con `radar: false` (Canarias) caen fuera de la rejilla: sin máscara.
+export const hasRadar = (b) => b.radar !== false;
+
 export function buildMasks(list) {
   const taken = new Uint8Array(GRID.width * GRID.height);
-  const basins = list.map((b) => {
+  const basins = list.filter(hasRadar).map((b) => {
     const edges = [];
     let r0 = Infinity, r1 = -Infinity;
     for (const poly of b.polygons) {
@@ -87,6 +90,93 @@ export function hydroYearStart(now) {
   const d = new Date(now * 1000);
   const y = d.getUTCMonth() >= 9 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
   return `${y}-10-01`;
+}
+
+// ---------------------------------------------------------------------------
+// Lluvia de las cuencas sin radar (Canarias), con los pluviómetros de AEMET
+
+function inRing(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+const inBasin = (b, x, y) => b.polygons.some((poly) => inRing(poly[0], x, y) && !poly.slice(1).some((h) => inRing(h, x, y)));
+
+/**
+ * La cuenca (de `list`) a la que pertenece un punto. Los límites están recortados
+ * a la costa y simplificados: un pluviómetro de costa puede caer ~1 km mar adentro,
+ * así que se prueba también alrededor (0,02° ≈ 2 km; las islas están más lejos).
+ */
+export function basinAt(list, lon, lat) {
+  for (const d of [0, 0.02]) {
+    for (const [dx, dy] of d ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] : [[0, 0]]) {
+      const b = list.find((x) => inBasin(x, lon + dx * d, lat + dy * d));
+      if (b) return b.id;
+    }
+  }
+  return null;
+}
+
+const HOUR_MS = 3600000, DAY_MS = 86400000;
+const r1 = (v) => Math.round(v * 10) / 10;
+const meanOf = (a) => { const v = a.filter((x) => x !== null && x !== undefined); return v.length ? r1(v.reduce((s, x) => s + x, 0) / v.length) : null; };
+
+/**
+ * Lluvia de las cuencas con `radar: false`: la media de los pluviómetros de AEMET
+ * que caen dentro. `summary` es P.summarize (pluvio.mjs): [id, nombre, lat, lon,
+ * 1 h, 24 h, 7 d, 30 d, año, temperatura] por estación y hasta cuándo llegan.
+ * `archive` es el archivo de pluviómetros (daily: días de 07 a 07 UTC; hourly:
+ * horas que terminan en t0 + i·h). Devuelve {id: {h24, d7, d30, year, cover, serie,
+ * source: 'gauges', n, until}} con la forma de rain.basins de agua.json; la serie
+ * son los últimos 30 días UTC (el último, hoy, a medias) como la del radar. Un día
+ * sin valor diario (AEMET los publica con retraso) se completa con las horas.
+ * Las cuencas sin ningún pluviómetro con datos no salen.
+ */
+export function gaugeRain(list, summary, archive, nowMs) {
+  const out = {};
+  const targets = list.filter((b) => !hasRadar(b));
+  if (!targets.length || !summary || !summary.stations || !summary.stations.length) return out;
+  const members = new Map(targets.map((b) => [b.id, []]));
+  for (const g of summary.stations) {
+    const id = basinAt(targets, g[3], g[2]);
+    if (id) members.get(id).push(g);
+  }
+  const today = Date.parse(new Date(nowMs).toISOString().slice(0, 10) + 'T00:00:00Z');
+  const lastHour = Date.parse(summary.until);
+  const d0 = archive && archive.daily ? Date.parse(archive.daily.d0 + 'T00:00:00Z') : null;
+  const hourly = archive && archive.hourly;
+
+  // Lluvia de un pluviómetro entre dos instantes (horas que terminan en (from, to]), si hay al menos `share` de ellas.
+  const hours = (id, from, to, share) => {
+    const a = hourly && hourly.data[id] && hourly.data[id].prec;
+    if (!a) return null;
+    const i0 = Math.round((from - hourly.t0) / HOUR_MS) + 1, i1 = Math.round((to - hourly.t0) / HOUR_MS);
+    const count = i1 - i0 + 1;
+    if (count < 1 || i0 < 0 || i1 >= a.length) return null;
+    let sum = 0, n = 0;
+    for (let i = i0; i <= i1; i++) if (a[i] !== null && a[i] !== undefined) { sum += a[i]; n++; }
+    return n && n >= count * share ? r1((sum * count) / n) : null;
+  };
+  const dayOf = (id, t) => {
+    if (t >= today) return lastHour > t ? hours(id, t, lastHour, 0.9) : null;
+    const i = d0 === null ? -1 : Math.round((t - d0) / DAY_MS);
+    const a = d0 !== null && archive.daily.data[id] && archive.daily.data[id].prec;
+    const v = a && i >= 0 && i < archive.daily.n ? a[i] : null;
+    return v !== null && v !== undefined ? v : hours(id, t, t + DAY_MS, 22 / 24);
+  };
+
+  for (const b of targets) {
+    const rows = members.get(b.id);
+    if (!rows.length) continue;
+    const serie = [];
+    for (let k = 29; k >= 0; k--) { const t = today - k * DAY_MS; serie.push(meanOf(rows.map((g) => dayOf(g[0], t)))); }
+    const basin = { h24: meanOf(rows.map((g) => g[5])), d7: meanOf(rows.map((g) => g[6])), d30: meanOf(rows.map((g) => g[7])), year: meanOf(rows.map((g) => g[8])), cover: null, serie, source: 'gauges', n: rows.length, until: summary.periodsUntil || summary.until };
+    if ([basin.h24, basin.d7, basin.d30, basin.year].some((v) => v !== null) || serie.some((v) => v !== null)) out[b.id] = basin;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
