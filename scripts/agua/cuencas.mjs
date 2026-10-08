@@ -2,15 +2,19 @@
 // Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Genera src/shared/cuencas.js: los límites de las demarcaciones
- * hidrográficas de la España peninsular y Baleares (las que cubre el radar
- * OPERA), recortados a tierra firme y simplificados para el mapa.
+ * hidrográficas de España (península, Baleares, Canarias, Ceuta y Melilla),
+ * recortados a tierra firme y simplificados para el mapa.
  *
  *  - Límites: Agencia Europea de Medio Ambiente, WISE WFD 2022 (CC BY 4.0).
  *    Incluyen las aguas costeras; se recortan con la costa de Natural Earth
  *    (dominio público).
  *  - Cada demarcación se empareja con los «ámbitos» del Boletín Hidrológico
  *    de MITECO (las cuencas internas del País Vasco van con el Cantábrico
- *    Oriental, que es su demarcación).
+ *    Oriental, que es su demarcación). Baleares, Canarias, Ceuta y Melilla no
+ *    salen en el boletín: sin ámbitos, sin datos de embalses.
+ *  - El radar OPERA cubre la península, Baleares, Ceuta y Melilla, pero no
+ *    Canarias (fuera de su rejilla): esas demarcaciones llevan `radar: false`
+ *    y su lluvia sale de los pluviómetros de AEMET (ver datos.mjs).
  *
  * Uso (una vez; el resultado se guarda en el repositorio):
  *   node scripts/agua/cuencas.mjs
@@ -45,7 +49,17 @@ const BASINS = {
   ES080: { name: 'Júcar', ambitos: ['Júcar'] },
   ES091: { name: 'Ebro', ambitos: ['Ebro'] },
   ES100: { name: 'Cuencas internas de Cataluña', nameEn: 'Catalan internal basins', ambitos: ['Cuencas Internas de Cataluña'] },
-  ES110: { name: 'Islas Baleares', nameEn: 'Balearic Islands', ambitos: [] }
+  ES110: { name: 'Islas Baleares', nameEn: 'Balearic Islands', ambitos: [] },
+  ES150: { name: 'Ceuta', ambitos: [] },
+  ES160: { name: 'Melilla', ambitos: [] },
+  // Canarias, de oeste a este. Una demarcación por isla; sin radar.
+  ES127: { name: 'El Hierro', ambitos: [], radar: false },
+  ES125: { name: 'La Palma', ambitos: [], radar: false },
+  ES126: { name: 'La Gomera', ambitos: [], radar: false },
+  ES124: { name: 'Tenerife', ambitos: [], radar: false },
+  ES120: { name: 'Gran Canaria', ambitos: [], radar: false },
+  ES122: { name: 'Fuerteventura', ambitos: [], radar: false },
+  ES123: { name: 'Lanzarote', ambitos: [], radar: false }
 };
 
 const getJson = async (url) => {
@@ -74,8 +88,9 @@ function areaKm2(multi) {
 
 const eea = await getJson(EEA);
 const land = await getJson(LAND);
-// Solo la tierra cerca de la península y Baleares.
-const near = (multi) => multi.some((poly) => poly[0].some(([x, y]) => x > -11 && x < 6 && y > 34 && y < 45));
+// Solo la tierra cerca de la península, Baleares, Ceuta y Melilla (África llega
+// a esa caja) y la de Canarias; sin Madeira ni el resto de islas atlánticas.
+const near = (multi) => multi.some((poly) => poly[0].some(([x, y]) => (x > -11 && x < 6 && y > 34 && y < 45) || (x > -19 && x < -13 && y > 27 && y < 30)));
 const landNear = land.features.map((f) => rings(f.geometry)).filter(near).flat(); // un único multipolígono
 
 const features = [];
@@ -86,13 +101,14 @@ for (const [id, def] of Object.entries(BASINS)) {
   // Fuera islotes y restos de menos de 3 km².
   multi = multi.filter((poly) => areaKm2([[poly[0]]]) >= 3)
     .map((poly) => poly.map((ring) => ring.map(([x, y]) => [round(x), round(y)])));
-  features.push({ id, name: def.name, nameEn: def.nameEn || def.name, ambitos: def.ambitos, areaKm2: Math.round(areaKm2(multi)), polygons: multi });
+  features.push({ id, name: def.name, nameEn: def.nameEn || def.name, ambitos: def.ambitos, ...(def.radar === false ? { radar: false } : {}), areaKm2: Math.round(areaKm2(multi)), polygons: multi });
   console.log(id, def.name, `${Math.round(areaKm2(multi))} km²`, `${multi.length} polígonos`);
 }
 
 const out = `/*
- * Demarcaciones hidrográficas de la España peninsular y Baleares, recortadas
- * a tierra firme. Generado con scripts/agua/cuencas.mjs; no editar a mano.
+ * Demarcaciones hidrográficas de España (península, Baleares, Canarias, Ceuta
+ * y Melilla), recortadas a tierra firme. Generado con scripts/agua/cuencas.mjs;
+ * no editar a mano. radar: false = fuera de la rejilla del radar OPERA.
  * Límites: Agencia Europea de Medio Ambiente, WISE WFD 2022 (CC BY 4.0).
  * Costa: Natural Earth (dominio público). Coordenadas [lon, lat].
  */

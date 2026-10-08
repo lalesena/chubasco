@@ -2,7 +2,8 @@
 // Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Agua en España: reserva de los embalses y lluvia por cuenca hidrográfica.
  * Panel lateral, capa de cuencas y puntos de los embalses en el mapa, y la
- * ficha de cada embalse, y los pluviómetros de AEMET. Los datos (agua.json,
+ * ficha de cada embalse, y los pluviómetros de AEMET. Canarias (fuera del
+ * radar) tiene su propia vista, y su lluvia sale de los pluviómetros. Los datos (agua.json,
  * pluvio.json y el histórico de cada cuenca, embalses/<id>.json) los publica
  * la web cada hora; aquí solo se muestran.
  * La ubicación y los datos de cada presa vienen de shared/embalses.js. */
@@ -14,6 +15,8 @@
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   const SPAIN = [[35.9, -9.4], [43.9, 4.4]];
+  const CANARIAS = [[27.5, -18.5], [29.45, -13.2]];
+  const ZONES = { peninsula: SPAIN, canarias: CANARIAS };
   const PERIODS = ['h24', 'd7', 'd30', 'year'];
   // Reserva (%): de cálido (poca agua) a azul (mucha).
   const RESERVE = { steps: [25, 40, 55, 70, 85], colors: ['#d7301f', '#fc8d59', '#fdcc8a', '#91bfdb', '#4575b4', '#313695'] };
@@ -68,13 +71,32 @@
     const monthYear = (iso) => new Date(iso.slice(0, 7) + '-15T12:00:00Z').toLocaleDateString(locale(), { month: 'short', year: 'numeric' });
     const basinName = (b) => (getT().lang === 'es' ? b.name : b.nameEn);
 
+    // «Península / Canarias»: salto rápido entre las dos vistas del mapa (Canarias queda lejos).
+    const zoneEl = document.createElement('div');
+    zoneEl.className = 'seg small agua-zone';
+    zoneEl.setAttribute('role', 'group');
+    zoneEl.hidden = true;
+    map.getContainer().parentNode.appendChild(zoneEl);
+    const zoneNow = () => { const c = map.getCenter(); return c.lat < 31.5 && c.lng < -12 ? 'canarias' : 'peninsula'; };
+    function renderZone(now = zoneNow()) {
+      zoneEl.setAttribute('aria-label', t('agua.zone'));
+      zoneEl.innerHTML = Object.keys(ZONES).map((z) => `<button type="button" data-zone="${z}" aria-pressed="${now === z}">${esc(t('agua.zone.' + z))}</button>`).join('');
+    }
+    zoneEl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-zone]');
+      if (!b) return;
+      renderZone(b.dataset.zone);
+      map.fitBounds(ZONES[b.dataset.zone], { padding: [10, 10] });
+    });
+    map.on('moveend', () => { if (st.open) renderZone(); });
+
     // CC BY 4.0 (OPERA, AEMA) y aviso legal de MITECO: citar la fuente.
     const attribution = () => [
       `${esc(t('agua.attrReservoirs'))} <a href="https://www.miteco.gob.es/es/agua/temas/evaluacion-de-los-recursos-hidricos/boletin-hidrologico.html">MITECO</a>`,
       `${esc(t('agua.attrRain'))} <a href="https://www.eumetnet.eu/">EUMETNET</a> OPERA (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, ${esc(t('map.processed'))})`,
       `${esc(t('agua.attrBasins'))} <a href="https://www.eea.europa.eu/">AEMA</a> (CC BY 4.0)`,
       // Nota legal de AEMET: citarla como fuente («© AEMET»).
-      ...(st.pluvio ? [`${esc(t('agua.attrGauges'))} © <a href="https://www.aemet.es/">AEMET</a>`] : [])
+      ...(st.pluvio || gaugeBasins() ? [`${esc(t('agua.attrGauges'))} © <a href="https://www.aemet.es/">AEMET</a>`] : [])
     ].join(' · ');
 
     // ----------------------------------------------------------------
@@ -96,6 +118,8 @@
 
     const res = (id) => (st.data && st.data.reservoirs && st.data.reservoirs.basins[id]) || null;
     const rainOf = (id) => (st.data && st.data.rain && st.data.rain.basins[id]) || null;
+    // Cuencas cuya lluvia sale de los pluviómetros (Canarias, fuera del radar).
+    const gaugeBasins = () => !!(st.data && st.data.rain && Object.values(st.data.rain.basins).some((x) => x.source === 'gauges'));
     const resRow = (id, name) => { const r = res(id); return (r && r.list && r.list.find((x) => x.name === name)) || null; };
     const resPct = (x) => (x && x.cap ? (100 * x.vol) / x.cap : null);
     const inv = (id, name) => { const e = EM(); return (e && e.items[resKey(id, name)]) || null; };
@@ -273,6 +297,7 @@
       html += `<span class="unit">${unit}</span></div>`;
       const lag = st.color === 'rain' && gaugeLag();
       if (lag) html += `<div class="agua-legend-note">${esc(t('agua.legendLag', { date: lag }))}</div>`;
+      if (st.color === 'reserve') html += `<div class="agua-legend-note">${esc(t('agua.legendNoReserve'))}</div>`;
       dom.legend.innerHTML = html;
     }
 
@@ -463,13 +488,17 @@
       }
       if (rn) {
         const fallen = rn.d7 !== null ? Math.round((rn.d7 * b.areaKm2) / 1000) : null;
-        html += `<h3>${esc(t('agua.rain'))}</h3>
+        const gauged = rn.source === 'gauges';
+        html += `<h3>${esc(t(gauged ? 'agua.rainGauges' : 'agua.rain'))}</h3>
           <dl class="agua-rain">
             ${PERIODS.map((p) => `<div><dt>${esc(t('agua.p.' + p))}</dt><dd>${esc(rain(rn[p]))}</dd></div>`).join('')}
           </dl>
+          ${gauged ? `<p class="hint">${esc(t(rn.n === 1 ? 'agua.gaugeBasis1' : 'agua.gaugeBasis', { n: rn.n }))}${rn.until ? ' ' + esc(t('agua.rainUntil', { time: new Date(rn.until).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) })) : ''}</p>` : ''}
           ${fallen !== null ? `<p class="agua-deltas">${esc(t('agua.fallen', { hm3: num(fallen) }))}</p>` : ''}
           ${rn.cover !== null && rn.cover < 0.8 ? `<p class="hint">${esc(t('agua.partial', { pct: Math.round(rn.cover * 100) }))}</p>` : ''}
           ${rn.serie ? `<canvas class="agua-chart bars" data-chart="rain"></canvas><p class="hint">${esc(t('agua.daily30'))}</p>` : ''}`;
+      } else if (b.radar === false) {
+        html += `<h3>${esc(t('agua.rainGauges'))}</h3><p class="hint">${esc(t('agua.noGaugeRain'))}</p>`;
       }
       if (r && r.list && r.list.length) {
         html += `<h3>${esc(t('agua.list', { n: r.list.length }))}</h3><ol class="agua-res">`;
@@ -1049,7 +1078,7 @@
         restyle(st.selected);
         if (fromList) map.fitBounds(st.shapes.get(st.selected).shape.getBounds(), { padding: [30, 30], maxZoom: 8 });
         const id = st.selected;
-        loadHist(id).then(() => { if (st.selected === id && !st.res) render(); });
+        if (res(id)) loadHist(id).then(() => { if (st.selected === id && !st.res) render(); }); // sin embalses, sin histórico
       }
       render();
       if (st.selected) { const d = dom.panel.querySelector('.agua-detail'); if (d) d.scrollIntoView({ block: 'nearest' }); }
@@ -1064,6 +1093,8 @@
       st.layer.addTo(map);
       st.pointLayer.addTo(map);
       map.fitBounds(SPAIN, { padding: [10, 10] });
+      renderZone('peninsula');
+      zoneEl.hidden = false;
       onZoom();
       render();
       await load();
@@ -1076,6 +1107,7 @@
     function close() {
       if (!st.open) return;
       st.open = false;
+      zoneEl.hidden = true;
       setAttribution(null);
       map.removeLayer(st.layer);
       map.removeLayer(st.pointLayer);
@@ -1091,7 +1123,7 @@
     return {
       open, close,
       isOpen: () => st.open,
-      refresh() { if (st.open) { setAttribution(attribution()); restyleAll(); render(); } },
+      refresh() { if (st.open) { setAttribution(attribution()); renderZone(); restyleAll(); render(); } },
       reload() { if (st.open) load(true).then(() => { buildPoints(); buildGauges(); restyleAll(); render(); }); }
     };
   }
