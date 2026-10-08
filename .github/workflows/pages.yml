@@ -47,6 +47,10 @@ jobs:
           mkdir -p web/dist/agua
           curl -fsS -o web/dist/agua/agua.json "$SITE/agua/agua.json" || true
           curl -fsS -o web/dist/agua/estado.json "$SITE/agua/estado.json" || true
+          mkdir -p web/dist/agua/embalses
+          for id in $(node -p "require('./src/shared/cuencas.js').basins.map((b) => b.id).join(' ')"); do
+            curl -fsS -o "web/dist/agua/embalses/$id.json" "$SITE/agua/embalses/$id.json" || true
+          done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist

@@ -129,7 +129,7 @@
     lightningView: (q) => call('lightningView', q),
     radarTile: (q) => call('radarTile', q),
     // Lo publica la propia web cada hora (scripts/agua/datos.mjs).
-    agua: () => fetch('agua/agua.json', { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+    agua: (file = 'agua.json') => fetch(`agua/${file}`, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
     checkNow: () => call('checkNow'),
     async testAlert(id) {
       if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();

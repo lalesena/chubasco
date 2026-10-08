@@ -811,18 +811,21 @@ function registerIpc() {
 
   ipcMain.handle('verify:get', (_e, id) => ({ loc: id ? verifier.stats(id) : null, all: verifier.stats(null) }));
 
-  // Rayos en la vista del mapa, como puntos para dibujar iconos.
   // Agua en España (embalses y lluvia por cuenca): lo calcula y publica la
-  // web cada hora (scripts/agua/datos.mjs); aquí solo se lee.
-  let agua = { at: 0, data: null };
-  ipcMain.handle('agua:get', async () => {
-    if (agua.data && Date.now() - agua.at < 15 * 60000) return agua.data;
+  // web cada hora (scripts/agua/datos.mjs); aquí solo se lee. `file` es
+  // agua.json o el histórico de embalses de una cuenca (embalses/ES030.json).
+  const agua = new Map();
+  ipcMain.handle('agua:get', async (_e, file = 'agua.json') => {
+    if (!/^(agua|embalses\/ES\d{3})\.json$/.test(file)) throw new Error('Fichero no válido');
+    const hit = agua.get(file);
+    if (hit && Date.now() - hit.at < 15 * 60000) return hit.data;
     const repo = repoInfo(require('../../package.json'));
     if (!repo) throw new Error('Sin repositorio publicado');
-    const res = await net.fetch(`https://${repo.owner}.github.io/${repo.repo}/agua/agua.json`, { headers: { 'User-Agent': userAgent() }, signal: AbortSignal.timeout(20000) });
+    const res = await net.fetch(`https://${repo.owner}.github.io/${repo.repo}/agua/${file}`, { headers: { 'User-Agent': userAgent() }, signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    agua = { at: Date.now(), data: await res.json() };
-    return agua.data;
+    const data = await res.json();
+    agua.set(file, { at: Date.now(), data });
+    return data;
   });
 
   // Teselas del mapa con OPERA: un byte por píxel (ver opera.js).

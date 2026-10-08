@@ -103,7 +103,13 @@ function lightningTile(u) {
   return PNG.sync.write(png);
 }
 
-// Agua en España: valores inventados con la forma de agua.json.
+// Agua en España: valores inventados con la forma de agua.json. Los
+// embalses, con nombres del inventario para que salgan en el mapa.
+function demoNames(b) {
+  const items = Object.keys(require('../shared/embalses').items).filter((k) => k.startsWith(b.id + '|')).map((k) => k.slice(b.id.length + 1));
+  return items.length >= 3 ? items.slice(0, 3) : [0, 1, 2].map((k) => `Embalse ${b.name.split(' ')[0]} ${k + 1}`);
+}
+
 function aguaDemo() {
   const { basins } = require('../shared/cuencas');
   const now = Date.now();
@@ -120,7 +126,7 @@ function aguaDemo() {
       cap: c, vol: Math.round((c * pct) / 100), pct, prevPct: Math.round(10 * (pct - 0.4 + wave(i, 2))) / 10,
       lastYearPct: Math.round(10 * (pct - 10 + 15 * wave(i, 1))) / 10, avg10Pct: Math.round(10 * (pct - 5 + 8 * wave(i, 3))) / 10,
       n: 3, weeks, weeksAvg: weeks.map((w, k) => Math.round(10 * (w - 3 + 4 * Math.sin(k / 7))) / 10),
-      list: [0, 1, 2].map((k) => ({ name: `Embalse ${b.name.split(' ')[0]} ${k + 1}`, cap: Math.round(c / (k + 2)), vol: Math.round((c / (k + 2)) * (pct / 100)), prev: Math.round((c / (k + 2)) * ((pct - 0.5) / 100)) }))
+      list: demoNames(b).map((name, k) => ({ name, cap: Math.round(c / (k + 2)), vol: Math.round((c / (k + 2)) * (pct / 100)), prev: Math.round((c / (k + 2)) * ((pct - 0.5) / 100)) }))
     };
   });
   res.total = { cap, vol: Math.round(vol), pct: Math.round((1000 * vol) / cap) / 10, prevPct: 52.1, lastYearPct: 47.5, avg10Pct: 50.3 };
@@ -132,6 +138,26 @@ function aguaDemo() {
     rain.basins[b.id] = { h24: serie[29], d7: Math.round(serie.slice(-7).reduce((a, x) => a + x, 0)), d30: Math.round(serie.reduce((a, x) => a + x, 0)), year: Math.round(serie.slice(-8).reduce((a, x) => a + x, 0)), cover: 0.97, serie };
   });
   return { updated: new Date(now).toISOString(), sources: {}, rain, reservoirs: res };
+}
+
+// Histórico de los embalses de una cuenca, con la forma de embalses/<id>.json.
+function aguaHistDemo(id) {
+  const b = require('../shared/cuencas').basins.find((x) => x.id === id);
+  if (!b) return null;
+  const now = Date.now();
+  const weekDates = Array.from({ length: 53 }, (_, k) => new Date(now - (52 - k) * 7 * 86400000).toISOString().slice(0, 10));
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const res = {};
+  demoNames(b).forEach((name, i) => {
+    const w = weekDates.map((_, k) => r1(55 + 25 * Math.sin(k / 8 + i)));
+    const months = Array.from({ length: 12 * 38 + 9 }, (_, k) => Math.round(55 + 30 * Math.sin(k / 5 + i) * Math.cos(k / 70)));
+    res[name] = {
+      w, avg: w.map((v, k) => r1(60 + 15 * Math.sin(k / 8 + i + 0.6))), lo: w.map((v, k) => Math.round(25 + 10 * Math.sin(k / 8))), hi: w.map((v, k) => Math.round(92 + 6 * Math.sin(k / 8))),
+      y0: 1988, yrs: Array.from({ length: 38 }, (_, k) => r1(50 + 35 * Math.sin(k * 0.9 + i))),
+      m0: '1988-01', m: months, max: [99.1, '2014-03-18'], min: [11.4, '1995-10-03'], since: '1988-01-05'
+    };
+  });
+  return { date: weekDates[52], weekDates, total: { m0: '1988-01', m: Array.from({ length: 12 * 38 + 9 }, (_, k) => Math.round(55 + 20 * Math.sin(k / 9) * Math.cos(k / 60))) }, res };
 }
 
 function json(obj) {
@@ -174,6 +200,8 @@ function install() {
     const u = new URL(req.url);
     if (u.host === OPERA_HOST) return operaResponse(req, u);
     if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/agua.json')) return json(aguaDemo());
+    const hist = u.host.endsWith('.github.io') && /\/agua\/embalses\/(ES\d{3})\.json$/.exec(u.pathname);
+    if (hist) { const h = aguaHistDemo(hist[1]); return h ? json(h) : new Response('', { status: 404 }); }
     if (u.host === 'api.open-meteo.com') return json(forecast());
     if (u.host === 'geocoding-api.open-meteo.com') {
       return json({ results: [

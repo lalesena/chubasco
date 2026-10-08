@@ -97,7 +97,7 @@ for (const [, file] of fontCss.matchAll(/url\(\.\/files\/([\w.-]+)\)/g)) {
   await copy(path.join(NM, '@fontsource-variable/archivo/files', file), `vendor/archivo/files/${file}`);
 }
 await copy(path.join(NM, '@fontsource-variable/archivo/LICENSE'), 'vendor/archivo/LICENSE');
-for (const f of ['palette', 'i18n', 'forecast', 'describe', 'cuencas']) await copy(path.join(ROOT, `src/shared/${f}.js`), `js/${f}.js`);
+for (const f of ['palette', 'i18n', 'forecast', 'describe', 'cuencas', 'embalses']) await copy(path.join(ROOT, `src/shared/${f}.js`), `js/${f}.js`);
 for (const f of ['charts', 'map', 'agua', 'app', 'widget']) await copy(path.join(ROOT, `src/renderer/${f}.js`), `js/${f}.js`);
 await copy(path.join(ROOT, 'src/renderer/styles.css'), 'styles.css');
 await copy(path.join(ROOT, 'web/src/client.js'), 'client.js');

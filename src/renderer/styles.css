@@ -712,9 +712,26 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-mode .leaflet-radar-pane, .agua-mode .leaflet-lightning-pane, .agua-mode .leaflet-overlay-pane,
 .agua-mode .timeline, .agua-mode .map-tools .tool-btn#layers-button,
 .agua-mode .echo-marker, .agua-mode .motion-label, .agua-mode .leaflet-labels-pane { display: none; }
+.agua-mode .agua-near .leaflet-labels-pane { display: block; }
 .agua-msg { padding: 24px 0; }
-.agua > section { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.agua > section:first-child { padding-top: 4px; }
+.agua-body > section { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.agua-body > section:first-child { padding-top: 4px; }
+.agua-search { position: sticky; top: 0; z-index: 2; padding: 2px 0 10px; background: var(--side); }
+.agua-search input { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); color: var(--ink); font: inherit; font-size: 13.5px; }
+.agua-search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.agua-found { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); box-shadow: 0 6px 18px rgb(0 0 0 / 0.12); }
+.agua-found li.hint { padding: 6px; }
+.agua-found button { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 6px; border-radius: 4px; text-align: left; font-size: 13.5px; color: var(--ink); }
+.agua-found button:hover, .agua-found button:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.agua-found small { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.agua-res-head { display: flex; align-items: center; gap: 2px; margin-left: -8px; font-size: 13px; color: var(--muted); }
+.agua-res-name { margin-top: 2px; font-size: 20px !important; }
+.agua-rank { margin: 8px 0 0; padding: 6px 8px; border-radius: var(--radius-s); background: color-mix(in srgb, var(--accent) 9%, transparent); font-size: 13px; }
+.agua-dam { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 6px 0 0; font-size: 13px; }
+.agua-dam div { display: contents; }
+.agua-dam dt { color: var(--muted); }
+.agua-dam dd { margin: 0; }
+.leaflet-tooltip.agua-tip { font-size: 12px; padding: 3px 7px; background: var(--surface); color: var(--ink); border-color: var(--line); }
 .agua h2 { font-size: 17px; font-weight: 640; }
 .agua h3 { margin: 16px 0 4px; font-size: 13px; font-weight: 640; font-stretch: 95%; }
 .agua-big { font-size: 46px; font-weight: 700; font-stretch: 78%; line-height: 1; letter-spacing: -0.01em; }
@@ -723,6 +740,7 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-deltas { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 .agua-chart { display: block; width: 100%; height: 92px; margin-top: 10px; }
 .agua-chart.bars { height: 64px; }
+.agua-chart.tall { height: 120px; }
 .agua-controls { display: grid; gap: 8px; }
 .seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); }
 .seg button { flex: 1; border: 0; background: none; padding: 5px 6px; border-radius: 4px; font-size: 13px; color: var(--muted); white-space: nowrap; }
@@ -747,7 +765,9 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-rain div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 6px; }
 .agua-rain dt { font-size: 11px; color: var(--muted); }
 .agua-rain dd { margin: 2px 0 0; font-size: 15px; font-weight: 620; font-variant-numeric: tabular-nums; }
-.agua-res li { display: grid; grid-template-columns: 1fr 44px 34px; grid-template-areas: 'name bar val' 'vol vol vol'; align-items: center; gap: 0 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.agua-res li { border-bottom: 1px solid var(--line); }
+.agua-res-btn { display: grid; grid-template-columns: 1fr 44px 34px; grid-template-areas: 'name bar val' 'vol vol vol'; align-items: center; gap: 0 8px; width: 100%; border: 0; background: none; padding: 6px 4px; margin: 0 -4px; box-sizing: content-box; text-align: left; font-size: 13px; color: var(--ink); border-radius: 4px; }
+.agua-res-btn:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
 .agua-res li:last-child { border-bottom: 0; }
 .agua-res .name { grid-area: name; }
 .agua-res .name small { color: var(--faint); font-size: 11px; }

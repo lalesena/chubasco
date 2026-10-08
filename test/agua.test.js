@@ -83,6 +83,66 @@ test('embalses: reserva por cuenca, semana anterior, hace un año y lista', asyn
   assert.deepEqual(out.weekDates, ['2025-10-07', '2026-09-29', '2026-10-06']);
 });
 
+test('embalses: histórico de cada embalse (semana, años anteriores, meses, récords)', async () => {
+  const { reservoirHistory, summarizeReservoirs } = await lib();
+  const list = [{ id: 'ES030', ambitos: ['Tajo'] }, { id: 'ES020', ambitos: ['Duero'] }];
+  const rows = [];
+  // 12 años de boletines semanales (martes); el embalse "Grande" sube 2 puntos cada año
+  // y en la semana 40 de cada año está a 30 + 2·año %.
+  const start = Date.UTC(2014, 0, 7);
+  const weeks = 52 * 12 + 40;
+  for (let k = 0; k <= weeks; k++) {
+    const d = new Date(start + k * 7 * 86400000);
+    const year = Math.floor(k / 52.18);
+    const pct = 30 + 2 * year + 10 * Math.sin((2 * Math.PI * (k % 52)) / 52);
+    rows.push({ FECHA: d, AMBITO_NOMBRE: 'Tajo', EMBALSE_NOMBRE: 'Grande', AGUA_TOTAL: '200', AGUA_ACTUAL: String((2 * pct).toFixed(2)).replace('.', ','), ELECTRICO_FLAG: '0' });
+    if (k > weeks - 20) rows.push({ FECHA: d, AMBITO_NOMBRE: 'Tajo', EMBALSE_NOMBRE: 'Nuevo', AGUA_TOTAL: '10', AGUA_ACTUAL: '5', ELECTRICO_FLAG: '0' });
+    if (k < 100) rows.push({ FECHA: d, AMBITO_NOMBRE: 'Tajo', EMBALSE_NOMBRE: 'Viejo', AGUA_TOTAL: '10', AGUA_ACTUAL: '5', ELECTRICO_FLAG: '0' });
+  }
+  const h = reservoirHistory(rows, list);
+  const s = summarizeReservoirs(rows, list);
+  assert.deepEqual(h.ES030.weekDates, s.weekDates, 'las mismas semanas que el resumen');
+  assert.ok(!h.ES030.res.Viejo, 'solo los embalses del último boletín');
+  assert.deepEqual(Object.keys(h.ES020.res), []);
+  const g = h.ES030.res.Grande;
+  for (const k of ['w', 'avg', 'lo', 'hi']) assert.equal(g[k].length, h.ES030.weekDates.length, k);
+  const last = g.w[g.w.length - 1];
+  // Esta semana en cada año: del más antiguo al anterior, y todos por debajo del actual.
+  assert.equal(g.y0 + g.yrs.length, new Date(h.ES030.date).getUTCFullYear());
+  assert.ok(g.yrs.every((v) => v < last), 'sube cada año');
+  assert.ok(g.lo.every((v, i) => v === null || v <= g.hi[i]));
+  assert.ok(Math.abs(g.avg[g.avg.length - 1] - (last - 11)) < 1.5, `media de 10 años ${g.avg[g.avg.length - 1]} frente a ${last}`);
+  // Mensual desde el primer mes; récords con fecha.
+  assert.equal(g.m0, '2014-01');
+  assert.equal(g.since, '2014-01-07');
+  assert.ok(g.max[0] >= last - 1e-9 && g.min[0] <= g.yrs[0]);
+  assert.match(g.max[1], /^\d{4}-\d{2}-\d{2}$/);
+  // Un embalse con pocos datos no tiene media ni banda.
+  const n = h.ES030.res.Nuevo;
+  assert.equal(n.avg[n.avg.length - 1], null);
+  assert.equal(n.lo[n.lo.length - 1], null);
+  assert.deepEqual(n.yrs, []);
+  // Total de la cuenca, mes a mes.
+  assert.equal(h.ES030.total.m0, '2014-01');
+  assert.ok(h.ES030.total.m.length > 140);
+});
+
+test('presas: cada embalse del inventario está en su cuenca y en España', () => {
+  const E = require('../src/shared/embalses');
+  const ids = new Set(CUENCAS.basins.map((b) => b.id));
+  const keys = Object.keys(E.items);
+  assert.ok(keys.length > 350, `${keys.length} embalses`);
+  for (const k of keys) {
+    const [id, name] = k.split('|');
+    const it = E.items[k];
+    assert.ok(ids.has(id) && name, k);
+    assert.ok(it.lat > 35.8 && it.lat < 43.9 && it.lon > -9.4 && it.lon < 3.4, `${k} fuera de la península`);
+    if (it.type) assert.ok(E.types[it.type], `${k}: tipo ${it.type}`);
+  }
+  const a = E.items['ES030|Alcántara'];
+  assert.ok(Math.abs(a.lat - 39.73) < 0.02 && Math.abs(a.lon + 6.886) < 0.02, 'Alcántara, en su presa');
+});
+
 test('el script de datos importa todo lo que usa de lib.mjs', async () => {
   const fs = require('fs');
   const src = fs.readFileSync(path.join(__dirname, '../scripts/agua/datos.mjs'), 'utf8');

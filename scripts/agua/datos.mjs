@@ -3,6 +3,7 @@
  * cada hora (ver .github/workflows/pages.yml) y publica en la web:
  *
  *  - agua.json:   lo que leen la app y la web.
+ *  - embalses/<cuenca>.json: histórico de cada embalse (la ficha lo pide al abrirse).
  *  - estado.json: lo necesario para la siguiente ejecución (lluvia por horas
  *                 y por días); se recupera de la web publicada.
  *
@@ -21,7 +22,7 @@ import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
 import MDBReader from 'mdb-reader';
 import * as hdf5 from 'jsfive';
-import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs } from './lib.mjs';
+import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory } from './lib.mjs';
 
 const require = createRequire(import.meta.url);
 const TIFF = require('../../src/main/tiff.js');
@@ -221,7 +222,7 @@ async function reservoirs(state) {
   const head = await fetchOk(EMBALSES_URL, { method: 'HEAD' });
   if (!head.ok) throw new Error(`MITECO HTTP ${head.status}`);
   const lastModified = head.headers.get('last-modified') || '';
-  if (state.embalses && state.embalses.lastModified === lastModified && state.embalses.out) {
+  if (state.embalses && state.embalses.lastModified === lastModified && state.embalses.out && state.embalses.hist) {
     log('embalses: sin cambios', lastModified);
     return state.embalses;
   }
@@ -237,7 +238,7 @@ async function reservoirs(state) {
 
   const out = summarizeReservoirs(rows, CUENCAS.basins, log);
   log('embalses:', out.date, `${out.total.pct} %`);
-  return { lastModified, out };
+  return { lastModified, out, hist: reservoirHistory(rows, CUENCAS.basins) };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +259,7 @@ async function readPrevious() {
 
 const now = Math.floor(Date.now() / 1000);
 const prev = await readPrevious();
-const state = { version: 1, rain: prev.rain || {}, embalses: prev.embalses || null };
+const state = { version: 2, rain: prev.rain || {}, embalses: prev.embalses || null };
 const masks = buildMasks(CUENCAS.basins);
 log('máscaras', masks.basins.map((b) => `${b.id}:${b.pixels.length}`).join(' '));
 
@@ -289,4 +290,8 @@ const agua = {
 await fs.mkdir(OUT, { recursive: true });
 await fs.writeFile(path.join(OUT, 'agua.json'), JSON.stringify(agua));
 await fs.writeFile(path.join(OUT, 'estado.json'), JSON.stringify(state));
+if (state.embalses && state.embalses.hist) {
+  await fs.mkdir(path.join(OUT, 'embalses'), { recursive: true });
+  for (const [id, h] of Object.entries(state.embalses.hist)) await fs.writeFile(path.join(OUT, 'embalses', `${id}.json`), JSON.stringify(h));
+}
 log('escrito', OUT, `${(JSON.stringify(agua).length / 1024).toFixed(0)} KB`);

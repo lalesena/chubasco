@@ -93,11 +93,9 @@ export function hydroYearStart(now) {
 export const norm = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
 export const num = (s) => Number(String(s).replace(',', '.')) || 0;
 
-/**
- * Resumen del Boletín Hidrológico: filas {AMBITO_NOMBRE, EMBALSE_NOMBRE,
- * FECHA, AGUA_TOTAL, AGUA_ACTUAL, ELECTRICO_FLAG} → reserva por cuenca.
- */
-export function summarizeReservoirs(rows, list, log = () => {}) {
+const DAY = 86400000, WEEK = 7 * DAY, YEAR = 365.2425 * DAY;
+
+function parseRows(rows, list, log) {
   const byAmbito = new Map();
   for (const b of list) for (const a of b.ambitos) byAmbito.set(norm(a), b.id);
   const byDate = new Map();
@@ -111,9 +109,32 @@ export function summarizeReservoirs(rows, list, log = () => {}) {
   }
   if (unknown.size) log('embalses: ámbitos sin cuenca', [...unknown].join(', '));
   const dates = [...byDate.keys()].sort((a, b) => a - b);
-  const last = dates[dates.length - 1];
-  const prev = dates[dates.length - 2];
-  const closest = (t) => dates.reduce((best, d) => (Math.abs(d - t) < Math.abs(best - t) ? d : best), dates[0]);
+  // La misma semana y años antes (por calendario): índice del boletín más
+  // cercano, o -1 si no lo hay a menos de 4 días.
+  const sameWeek = (i, y) => {
+    const t = dates[i] - y * YEAR;
+    let lo = 0, hi = dates.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < t) lo = mid + 1; else hi = mid; }
+    if (lo > 0 && Math.abs(dates[lo - 1] - t) <= Math.abs(dates[lo] - t)) lo--;
+    return Math.abs(dates[lo] - t) <= 4 * DAY ? lo : -1;
+  };
+  // Último año (semanal), más una semana para cerrar el año.
+  const last = dates.length - 1;
+  const recent = [];
+  for (let i = 0; i <= last; i++) if (dates[i] > dates[last] - YEAR - WEEK) recent.push(i);
+  return { dates, byDate, sameWeek, recent };
+}
+
+/**
+ * Resumen del Boletín Hidrológico: filas {AMBITO_NOMBRE, EMBALSE_NOMBRE,
+ * FECHA, AGUA_TOTAL, AGUA_ACTUAL, ELECTRICO_FLAG} → reserva por cuenca.
+ */
+export function summarizeReservoirs(rows, list, log = () => {}) {
+  const { dates, byDate, sameWeek, recent: recentIdx } = parseRows(rows, list, log);
+  const iLast = dates.length - 1;
+  const last = dates[iLast];
+  const prev = dates[iLast - 1];
+  const ago = (i, y) => { const j = sameWeek(i, y); return j < 0 ? null : dates[j]; };
   const cache = new Map();
   const totals = (t) => {
     if (cache.has(t)) return cache.get(t);
@@ -127,21 +148,17 @@ export function summarizeReservoirs(rows, list, log = () => {}) {
     return out;
   };
   const pct = (o) => (o && o.cap ? Math.round((1000 * o.vol) / o.cap) / 10 : null);
-  const week = 7 * 86400000, year = 364 * 86400000;
-  const now = totals(last), before = totals(prev), lastYear = totals(closest(last - year));
+  const now = totals(last), before = totals(prev), lastYear = totals(ago(iLast, 1));
   // Media de los 10 años anteriores en la misma semana.
-  const avgAt = (t, id) => {
+  const avgAt = (i, id) => {
     const v = [];
-    for (let y = 1; y <= 10; y++) {
-      const d = closest(t - y * year);
-      if (Math.abs(d - (t - y * year)) <= week) { const p = pct(totals(d)[id]); if (p !== null) v.push(p); }
-    }
+    for (let y = 1; y <= 10; y++) { const d = ago(i, y); const p = d === null ? null : pct(totals(d)[id]); if (p !== null) v.push(p); }
     return v.length >= 5 ? Math.round((10 * v.reduce((s, x) => s + x, 0)) / v.length) / 10 : null;
   };
-  const avg10 = (id) => avgAt(last, id);
+  const avg10 = (id) => avgAt(iLast, id);
   // Evolución en el último año (semanal) y la media de 10 años de cada semana.
-  const recent = dates.filter((d) => d > last - year - week);
-  const weeks = (id) => ({ weeks: recent.map((d) => pct(totals(d)[id])), weeksAvg: recent.map((d) => avgAt(d, id)) });
+  const recent = recentIdx.map((i) => dates[i]);
+  const weeks = (id) => ({ weeks: recent.map((d) => pct(totals(d)[id])), weeksAvg: recentIdx.map((i) => avgAt(i, id)) });
 
   const prevVol = new Map((byDate.get(prev) || []).map((x) => [`${x.basin}|${x.name}`, x.vol]));
   const basins = {};
@@ -161,5 +178,102 @@ export function summarizeReservoirs(rows, list, log = () => {}) {
     total: { cap: Math.round(now.all.cap), vol: Math.round(now.all.vol), pct: pct(now.all), prevPct: pct(before.all), lastYearPct: pct(lastYear.all), avg10Pct: avg10('all'), ...weeks('all') },
     basins
   };
+  return out;
+}
+
+/**
+ * Histórico de cada embalse (para su ficha), por cuenca:
+ * {id: {date, weekDates, total: {m0, m}, res: {nombre: {...}}}}, con
+ *  - w, avg, lo, hi: % de cada semana del último año, media de los 10 años
+ *    anteriores y mínimo y máximo de todos los años anteriores;
+ *  - y0, yrs: % de esta misma semana en cada año desde y0;
+ *  - m0, m: media mensual desde el primer dato (% entero);
+ *  - max, min: [%, fecha] récords de toda la serie; since: primer dato.
+ * Solo los embalses del último boletín.
+ */
+export function reservoirHistory(rows, list, log = () => {}) {
+  const { dates, byDate, sameWeek, recent } = parseRows(rows, list, log);
+  const n = dates.length, iLast = n - 1;
+  const iso = (i) => new Date(dates[i]).toISOString().slice(0, 10);
+  const r1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : null);
+  const r0 = (v) => (Number.isFinite(v) ? Math.round(v) : null);
+  const d0 = new Date(dates[0]);
+  const month = (i) => { const d = new Date(dates[i]); return (d.getUTCFullYear() - d0.getUTCFullYear()) * 12 + d.getUTCMonth() - d0.getUTCMonth(); };
+  const monthKey = (k) => { const d = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + k, 1)); return d.toISOString().slice(0, 7); };
+
+  // Serie (%) de cada embalse y totales de cada cuenca.
+  const series = new Map();
+  const totals = new Map();
+  for (let i = 0; i < n; i++) {
+    for (const x of byDate.get(dates[i])) {
+      const key = `${x.basin}|${x.name}`;
+      let s = series.get(key);
+      if (!s) { s = { basin: x.basin, name: x.name, pct: new Float32Array(n).fill(NaN) }; series.set(key, s); }
+      if (x.cap > 0) s.pct[i] = (100 * x.vol) / x.cap;
+      let tt = totals.get(x.basin);
+      if (!tt) { tt = { cap: new Float64Array(n), vol: new Float64Array(n) }; totals.set(x.basin, tt); }
+      tt.cap[i] += x.cap; tt.vol[i] += x.vol;
+    }
+  }
+  // Las semanas equivalentes de años anteriores, una vez para todos.
+  const back = new Map();
+  const years = Math.floor((dates[iLast] - dates[0]) / YEAR);
+  for (const i of recent) { const js = []; for (let y = 1; y <= years; y++) js.push(sameWeek(i, y)); back.set(i, js); }
+  const at = (p, j) => (j >= 0 && Number.isFinite(p[j]) ? p[j] : null);
+
+  const monthly = (p) => {
+    const sum = [], cnt = [];
+    let first = -1;
+    for (let i = 0; i < n; i++) {
+      if (!Number.isFinite(p[i])) continue;
+      const k = month(i);
+      if (first < 0) first = k;
+      sum[k] = (sum[k] || 0) + p[i]; cnt[k] = (cnt[k] || 0) + 1;
+    }
+    if (first < 0) return { m0: null, m: [] };
+    const m = [];
+    for (let k = first; k <= month(iLast); k++) m.push(cnt[k] ? Math.round(sum[k] / cnt[k]) : null);
+    return { m0: monthKey(first), m };
+  };
+
+  const out = {};
+  for (const b of list) out[b.id] = { date: iso(iLast), weekDates: recent.map(iso), total: { m0: null, m: [] }, res: {} };
+  for (const [id, tt] of totals) {
+    if (!out[id]) continue;
+    const p = new Float32Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) if (tt.cap[i] > 0) p[i] = (100 * tt.vol[i]) / tt.cap[i];
+    out[id].total = monthly(p);
+  }
+  for (const s of series.values()) {
+    const p = s.pct;
+    if (!Number.isFinite(p[iLast]) || !out[s.basin]) continue;
+    const prior = (i) => back.get(i).map((j) => at(p, j)).filter((v) => v !== null);
+    const w = [], avg = [], lo = [], hi = [];
+    for (const i of recent) {
+      w.push(r1(p[i]));
+      const ten = back.get(i).slice(0, 10).map((j) => at(p, j)).filter((v) => v !== null);
+      avg.push(ten.length >= 5 ? r1(ten.reduce((a, v) => a + v, 0) / ten.length) : null);
+      const all = prior(i);
+      lo.push(all.length >= 5 ? r0(Math.min(...all)) : null);
+      hi.push(all.length >= 5 ? r0(Math.max(...all)) : null);
+    }
+    // Esta semana en cada año, del más antiguo al actual.
+    const same = back.get(iLast).map((j) => at(p, j)).reverse();
+    const lead = same.findIndex((v) => v !== null);
+    const yrs = lead < 0 ? [] : same.slice(lead).map(r1);
+    let iMax = -1, iMin = -1, iFirst = -1;
+    for (let i = 0; i < n; i++) {
+      if (!Number.isFinite(p[i])) continue;
+      if (iFirst < 0) iFirst = i;
+      if (iMax < 0 || p[i] > p[iMax]) iMax = i;
+      if (iMin < 0 || p[i] < p[iMin]) iMin = i;
+    }
+    out[s.basin].res[s.name] = {
+      w, avg, lo, hi,
+      y0: new Date(dates[iLast]).getUTCFullYear() - yrs.length, yrs,
+      ...monthly(p),
+      max: [r1(p[iMax]), iso(iMax)], min: [r1(p[iMin]), iso(iMin)], since: iso(iFirst)
+    };
+  }
   return out;
 }
