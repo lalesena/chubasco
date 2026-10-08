@@ -110,6 +110,8 @@ La web usa el radar europeo **EUMETNET OPERA**, cuya licencia (CC BY 4.0) permit
 
 Con la línea de órdenes, los pasos 2 y 3 son `cd proxy && npx wrangler login && npx wrangler deploy`.
 
+El Worker solo atiende a las webs permitidas (y a `localhost`, para pruebas), así que otras webs no pueden gastar tu cuota. Por defecto es la web original; si publicas tu propia copia, añade en el Worker la variable `ALLOWED_ORIGINS` con la dirección de tu web, por ejemplo `https://tu-usuario.github.io` (en *Settings → Variables*, o en `wrangler.toml`).
+
 El plan gratuito de Workers admite 100 000 peticiones al día. Un visitante con el mapa abierto hace unas 100 al cargarlo y unas 15 cada 5 minutos, así que basta para un uso moderado. Si se queda corto, el plan de pago (5 $/mes) admite 10 millones al mes.
 
 ## Cómo funciona
@@ -187,6 +189,12 @@ Tus ubicaciones, ajustes, datos de precisión (`verify.json`, `verify-log.jsonl`
 - **Windows:** `%APPDATA%\Chubasco\chubasco.json`
 
 Para un uso comercial: OPERA y EUMETSAT lo permiten (CC BY 4.0), pero Open-Meteo exige un plan de pago.
+
+## Licencia y autoría
+
+Chubasco es de **lalesena** y es software libre con licencia [GNU AGPL 3.0 o posterior](LICENSE), con un término adicional (sección 7(b), en [NOTICE](NOTICE)): toda copia o versión derivada debe mantener visible en su interfaz la atribución «Chubasco, de lalesena» con un enlace a este repositorio.
+
+En la práctica: puedes usarlo, estudiarlo, modificarlo y redistribuirlo, también montado como web, siempre que publiques tu código con la misma licencia, mantengas la atribución y, si lo cambias, lo indiques. Las librerías y los datos de terceros conservan sus propias licencias (ver «Datos y licencias»). Las claves y servicios del autor (la clave de AEMET, que es un secreto del repositorio, y su Worker de Cloudflare, que solo atiende a su web) no forman parte de lo que se comparte: cada copia necesita los suyos.
 
 ## Problemas frecuentes
 

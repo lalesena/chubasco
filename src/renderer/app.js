@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Controlador de la interfaz. */
 (function () {
   'use strict';
@@ -768,7 +770,7 @@
       systemLocale: st.systemLocale, platform: st.platform, quietUntil: st.quietUntil
     });
     document.body.classList.add('platform-' + st.platform);
-    $('version').textContent = `Chubasco ${st.version}`;
+    $('version').textContent = `Chubasco ${st.version} · © 2026 lalesena`;
     setLang();
     wireGlobal();
     wireSettings();

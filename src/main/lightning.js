@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 'use strict';
 /*
  * Rayos observados desde el satélite Meteosat-12 (MTG Lightning Imager) a

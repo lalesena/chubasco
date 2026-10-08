@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Decodificador PNG mínimo sobre DecompressionStream, que existe igual en el
  * navegador y en Node: la app de escritorio y la versión web leen las

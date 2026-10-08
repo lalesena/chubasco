@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 'use strict';
 /*
  * Trayectos habituales (p. ej. casa → trabajo a las 8:15 de lunes a viernes).

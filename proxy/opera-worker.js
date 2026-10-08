@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Intermediario para leer el radar EUMETNET OPERA desde la web de Chubasco.
  *
@@ -8,25 +10,40 @@
  * cambian una vez publicados, así que cada trozo se pide al origen una vez
  * por centro de datos.
  *
+ * Solo atiende a las webs de ALLOWED_ORIGINS (variable del Worker, separadas
+ * por comas; por defecto, la web de Chubasco) y a localhost para pruebas: así
+ * otras webs, o copias de este repositorio, no gastan su cuota. Cada copia
+ * debe desplegar su propio Worker.
+ *
  * Despliegue: ver README (sección «Radar OPERA en la web»).
  */
 const UPSTREAM = 'https://s3.waw3-1.cloudferro.com/openradar-24h';
 const PATH = /^\/(\d{4})\/(\d{2})\/(\d{2})\/OPERA\/COMP\/OPERA@(\d{8})T(\d{4})@0@DBZH\.tiff$/;
 const RANGE = /^bytes=(\d{1,9})-(\d{1,9})$/;
 const MAX_BYTES = 4 << 20;
+const DEFAULT_ORIGINS = 'https://lalesena.github.io';
+const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const CORS = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Range',
   'Access-Control-Expose-Headers': 'Content-Range',
   'Access-Control-Max-Age': '86400'
 };
 
-const reply = (text, status, extra = {}) => new Response(text, { status, headers: { ...CORS, 'Cache-Control': 'no-store', ...extra } });
+// El origen de la petición, si está permitido (los navegadores siempre lo envían en peticiones entre webs).
+function allowedOrigin(request, env) {
+  const origin = request.headers.get('Origin') || '';
+  const list = String((env && env.ALLOWED_ORIGINS) || DEFAULT_ORIGINS).split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+  return list.includes(origin) || LOCAL.test(origin) ? origin : null;
+}
 
 export default {
   async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    const origin = allowedOrigin(request, env);
+    const cors = origin ? { ...CORS, 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {};
+    const reply = (text, status, extra = {}) => new Response(text, { status, headers: { ...cors, 'Cache-Control': 'no-store', ...extra } });
+    if (!origin) return reply('Origen no permitido', 403);
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (request.method !== 'GET') return reply('Método no admitido', 405);
     const url = new URL(request.url);
     const m = PATH.exec(url.pathname);
@@ -65,7 +82,7 @@ export default {
     return new Response(hit.body, {
       status: 206,
       headers: {
-        ...CORS,
+        ...cors,
         'Content-Type': 'application/octet-stream',
         'Cache-Control': 'public, max-age=86400, immutable',
         'Content-Range': hit.headers.get('X-Content-Range')

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Construye la versión web en web/dist (una web estática: GitHub Pages o
  * cualquier alojamiento). Reutiliza la interfaz de la app tal cual:
@@ -127,6 +129,9 @@ await write('embed.html', embed);
 // 4. Páginas y ficheros fijos (privacidad, manifiesto, iconos).
 await fs.cp(path.join(ROOT, 'web', 'static'), OUT, { recursive: true });
 await copy(path.join(ROOT, 'assets/icon-512.png'), 'icon-512.png');
+// Licencia y autoría (AGPL): también en la web publicada.
+await copy(path.join(ROOT, 'LICENSE'), 'LICENSE.txt');
+await copy(path.join(ROOT, 'NOTICE'), 'NOTICE.txt');
 await write('.nojekyll', '');
 
 // 5. Cada script y hoja de estilo con la huella de su contenido (?v=…): tras

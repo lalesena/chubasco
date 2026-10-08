@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Convierte el estado calculado (radar + modelo) en frases para la interfaz,
  * la bandeja y los avisos. UMD: window.RA_DESCRIBE en la interfaz.

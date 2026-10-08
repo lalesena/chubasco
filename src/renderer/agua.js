@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Agua en España: reserva de los embalses y lluvia por cuenca hidrográfica.
  * Panel lateral, capa de cuencas y puntos de los embalses en el mapa, y la
  * ficha de cada embalse, y los pluviómetros de AEMET. Los datos (agua.json,

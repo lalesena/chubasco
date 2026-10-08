@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Textos en español e inglés. Módulo UMD (window.RA_I18N en la interfaz). */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -419,6 +421,9 @@
     'set.login': 'Abrir al iniciar sesión',
     'set.startHidden': 'Arrancar oculto en la bandeja',
     'set.closeToTray': 'Al cerrar la ventana, seguir vigilando en segundo plano',
+    'set.legal': 'Chubasco, de lalesena. Software libre con licencia GNU AGPL 3.0 o posterior: puedes usarlo, modificarlo y compartirlo publicando tu código con la misma licencia y manteniendo esta atribución. Se ofrece sin ninguna garantía.',
+    'set.sourceCode': 'Código fuente',
+    'set.license': 'Licencia',
     'set.sources': 'Datos',
     'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), solo en Europa. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
     'set.shortcuts': 'Atajos',
@@ -861,6 +866,9 @@
     'set.login': 'Open at login',
     'set.startHidden': 'Start hidden in the tray',
     'set.closeToTray': 'Keep watching in the background when the window closes',
+    'set.legal': 'Chubasco, by lalesena. Free software under the GNU AGPL 3.0 or later: you may use, modify and share it if you publish your code under the same licence and keep this attribution. It comes with no warranty.',
+    'set.sourceCode': 'Source code',
+    'set.license': 'Licence',
     'set.sources': 'Data',
     'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), Europe only. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
     'set.shortcuts': 'Shortcuts',

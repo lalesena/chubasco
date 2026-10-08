@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Datos de agua de España para la app y la web. Lo ejecuta GitHub Actions
  * cada hora (ver .github/workflows/pages.yml) y publica en la web:

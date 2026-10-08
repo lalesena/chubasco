@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Versión web: en la página hace el papel del "preload" de la app de
  * escritorio (window.chubasco, con la misma interfaz) y habla con el motor,

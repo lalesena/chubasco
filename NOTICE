@@ -1,0 +1,42 @@
+Chubasco
+Copyright (C) 2026 lalesena <https://github.com/lalesena>
+Original source: https://github.com/lalesena/chubasco
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version, with the additional term below. See LICENSE.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public
+License for more details.
+
+ADDITIONAL TERM (section 7(b) of the GNU AGPL version 3)
+
+Author attribution. Every copy of this program, and every work based on
+it, must preserve the author attribution "Chubasco, by lalesena" (or a
+faithful translation of it), together with a link to
+https://github.com/lalesena/chubasco wherever links can be shown, among
+the Appropriate Legal Notices displayed by each interactive user
+interface: the desktop app, the web version, the embeddable widget and any
+other interface. The attribution may sit with the other legal notices
+(for example in the settings or "about" screen and in the map credits) but
+must not be removed, hidden or made misleading. Modified versions must
+also be marked as changed and must not be presented as the original.
+
+Third-party components keep their own licences (see node_modules and the
+"Datos y licencias" section of README.md for the data sources).
+
+-------------------------------------------------------------------------
+
+Resumen en español (informativo; el texto que vale es el de arriba y LICENSE)
+
+Chubasco es software libre de lalesena, con licencia GNU AGPL versión 3 o
+posterior. Puedes usarlo, estudiarlo, modificarlo y redistribuirlo, también
+como servicio web, siempre que publiques tu código con la misma licencia.
+Término adicional (sección 7(b)): toda copia o versión derivada debe
+mantener visible en su interfaz la atribución «Chubasco, de lalesena» con
+un enlace a https://github.com/lalesena/chubasco, y las versiones
+modificadas deben indicarlo y no presentarse como la original. Sin ninguna
+garantía.

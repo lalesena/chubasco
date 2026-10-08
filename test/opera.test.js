@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -111,7 +113,7 @@ test('OPERA: teselas del mapa en su sitio', async () => {
   assert.ok(far.every((v) => v === O.NODATA));
 });
 
-test('Intermediario de Cloudflare: solo OPERA, con rango, CORS y caché', async () => {
+test('Intermediario de Cloudflare: solo OPERA, con rango, CORS para la web propia y caché', async () => {
   const worker = (await import(pathToFileURL(path.join(__dirname, '../proxy/opera-worker.js')).href)).default;
   const store = new Map();
   globalThis.caches = { default: {
@@ -130,16 +132,20 @@ test('Intermediario de Cloudflare: solo OPERA, con rango, CORS y caché', async 
     return new Response(file.read(+r[1], +r[2]), { status: 206, headers: { 'Content-Range': `bytes ${r[1]}-${r[2]}/${file.size}` } });
   };
   try {
-    const call = async (p, range, method = 'GET') => {
+    const WEB = 'https://lalesena.github.io';
+    const call = async (p, range, method = 'GET', origin = WEB, env = {}) => {
       const waits = [];
-      const res = await worker.fetch(new Request('https://proxy.example' + p, { method, headers: range ? { Range: range } : {} }), {}, { waitUntil: (w) => waits.push(w) });
+      const headers = {};
+      if (range) headers.Range = range;
+      if (origin) headers.Origin = origin;
+      const res = await worker.fetch(new Request('https://proxy.example' + p, { method, headers }), env, { waitUntil: (w) => waits.push(w) });
       await Promise.all(waits);
       return res;
     };
     const good = '/2026/10/07/OPERA/COMP/OPERA@20261007T0850@0@DBZH.tiff';
     const a = await call(good, 'bytes=0-16383');
     assert.equal(a.status, 206);
-    assert.equal(a.headers.get('access-control-allow-origin'), '*');
+    assert.equal(a.headers.get('access-control-allow-origin'), WEB);
     assert.equal(a.headers.get('content-range'), `bytes 0-16383/${file.size}`);
     assert.deepEqual(new Uint8Array(await a.arrayBuffer()), file.read(0, 16383));
     const b = await call(good, 'bytes=0-16383');
@@ -150,6 +156,13 @@ test('Intermediario de Cloudflare: solo OPERA, con rango, CORS y caché', async 
     assert.equal((await call('/2026/10/07/OPERA/COMP/OPERA@20261008T0850@0@DBZH.tiff', 'bytes=0-9')).status, 404);
     assert.equal((await call('/etc/passwd', 'bytes=0-9')).status, 404);
     assert.equal((await call(good, null, 'OPTIONS')).status, 204);
+    // Otras webs (o copias del repositorio) no pueden usarlo; sin Origin, tampoco.
+    const other = await call(good, 'bytes=0-16383', 'GET', 'https://otra.example');
+    assert.equal(other.status, 403);
+    assert.equal(other.headers.get('access-control-allow-origin'), null);
+    assert.equal((await call(good, 'bytes=0-16383', 'GET', null)).status, 403);
+    assert.equal((await call(good, 'bytes=0-16383', 'GET', 'http://localhost:8080')).status, 206, 'pruebas en local');
+    assert.equal((await call(good, 'bytes=0-16383', 'GET', 'https://otra.example', { ALLOWED_ORIGINS: 'https://otra.example, https://x.example' })).status, 206, 'lista propia de cada despliegue');
     assert.equal(upstream, 1);
   } finally {
     globalThis.fetch = realFetch;

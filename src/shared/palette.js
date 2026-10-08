@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Escala de colores por dBZ para el mapa, la leyenda y las gráficas, con
  * anclas cada 5 dBZ (los colores siguen la paleta «Universal Blue» publicada

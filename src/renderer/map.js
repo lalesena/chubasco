@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Mapa: capas base, radar animado con previsión extrapolada, ubicaciones.
  * El radar es OPERA: teselas que calcula el proceso principal (o el motor
  * web) y aquí se colorean. */
@@ -38,6 +40,8 @@
       labels: { ...style, layers: style.layers.filter((l) => l.type === 'symbol').map(localize) }
     };
   }
+  // Autoría (AGPL, término adicional 7(b) en NOTICE): «Chubasco, de lalesena», enlazado al original.
+  const APP_ATTR = '<a href="https://github.com/lalesena/chubasco" target="_blank" rel="noopener">Chubasco</a> © lalesena';
   // CC BY 4.0: autoría, licencia y aviso de que los datos están transformados.
   const RADAR_ATTR = (t) => 'Radar <a href="https://www.eumetnet.eu/">EUMETNET</a> OPERA (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>' +
     (t ? ', ' + t('map.processed') : '') + ')';
@@ -198,8 +202,8 @@
 
     function updateAttribution() {
       const def = BASES[st.baseKey] || BASES.light;
-      if (st.extraAttr) { dom.attribution.innerHTML = [def.attr, st.extraAttr].join(' · '); return; }
-      dom.attribution.innerHTML = [def.attr, RADAR_ATTR(st.t)].concat(st.lightningOn ? [LIGHTNING_ATTR] : []).join(' · ');
+      if (st.extraAttr) { dom.attribution.innerHTML = [APP_ATTR, def.attr, st.extraAttr].join(' · '); return; }
+      dom.attribution.innerHTML = [APP_ATTR, def.attr, RADAR_ATTR(st.t)].concat(st.lightningOn ? [LIGHTNING_ATTR] : []).join(' · ');
     }
 
     // ----------------------------------------------------------------

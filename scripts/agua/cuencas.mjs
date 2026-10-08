@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Genera src/shared/cuencas.js: los límites de las demarcaciones
  * hidrográficas de la España peninsular y Baleares (las que cubre el radar

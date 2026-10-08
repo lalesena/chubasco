@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Superficie de lluvia entre pluviómetros: interpolación por distancia
  * inversa (IDW) sobre una rejilla gruesa, pintada como capa de Leaflet con la
  * escala de colores que dé quien la use y recortada a tierra (las cuencas).

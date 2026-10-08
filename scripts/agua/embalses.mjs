@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Genera src/shared/embalses.js: los datos fijos de cada embalse del Boletín
  * Hidrológico (ubicación, río, tipo de presa, altura, longitud de coronación,

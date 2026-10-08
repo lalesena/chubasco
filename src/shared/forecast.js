@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Previsión combinada para una ubicación: radar extrapolado al principio y
  * modelo (Open-Meteo) después, con un paso gradual entre ambos. De aquí salen

@@ -5,7 +5,7 @@
   "description": "Alarma de lluvia de escritorio: radar en tiempo real, previsión a corto plazo y avisos cuando se acerca la lluvia.",
   "main": "src/main/main.js",
   "author": "lalesena",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/lalesena/chubasco.git"
@@ -52,6 +52,8 @@
       "src/**/*",
       "assets/**/*",
       "package.json",
+      "LICENSE",
+      "NOTICE",
       "!**/*.map"
     ],
     "asar": true,

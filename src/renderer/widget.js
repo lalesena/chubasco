@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
  * Widget: el estado de una ubicación de un vistazo. El mismo código sirve
  * para el widget de escritorio de la app (Mac y Windows) y para el que se
@@ -18,7 +20,9 @@
   const link = (href, text) => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
   // Atribución en otras webs: OPERA pide autoría y licencia (CC BY 4.0). En
   // el tamaño pequeño, la forma corta (la web enlazada la da completa).
+  // Primero, la autoría (AGPL, término adicional 7(b) en NOTICE).
   const credit = () => [
+    link('https://github.com/lalesena/chubasco', size() === 'small' ? 'Chubasco' : 'Chubasco © lalesena'),
     link('https://www.eumetnet.eu/', size() === 'small' ? 'OPERA' : 'EUMETNET OPERA') + ' ' + link('https://creativecommons.org/licenses/by/4.0/', 'CC BY'),
     link('https://open-meteo.com/', 'Open-Meteo'),
     link('https://www.eumetsat.int/', 'EUMETSAT')
