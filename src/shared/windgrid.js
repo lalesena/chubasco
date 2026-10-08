@@ -21,6 +21,10 @@
 
   // Europa (la zona del radar OPERA), con Canarias, Madeira y casi todas las Azores.
   const DOMAIN = { west: -32, east: 45, south: 27, north: 72, step: 0.25 };
+  // ICON-EU a su resolución completa (0,0625°, unos 7 km), solo en la península,
+  // Baleares, el sur de Francia y el norte de Marruecos: toda Europa pesaría
+  // unas 15 veces más. Canarias queda fuera de la zona del modelo (empieza en 29,5° N).
+  const ICON_DOMAIN = { west: -10.5, east: 6, south: 34.5, north: 46, step: 0.0625 };
   const SCALE = 0.5; // m/s por unidad
 
   function gridOf(d = DOMAIN) {
@@ -30,6 +34,13 @@
       rows: Math.round((d.north - d.south) / d.step) + 1
     };
   }
+
+  // Modelos que se publican (en viento/<id>/), en el orden del selector.
+  const MODELS = [
+    { id: 'ecmwf', name: 'ECMWF', grid: gridOf(DOMAIN) },
+    { id: 'icon-eu', name: 'ICON-EU', grid: gridOf(ICON_DOMAIN) },
+    { id: 'gfs', name: 'GFS', grid: gridOf(DOMAIN) }
+  ];
 
   // ----------------------------------------------------------------
   // Formato
@@ -170,5 +181,5 @@
   }
   const css = (ms) => `rgb(${color(ms).join(',')})`;
 
-  return { DOMAIN, SCALE, gridOf, encode, decode, gunzip, inflate, cell, bilinear, sample, BEAUFORT, beaufort, ANCHORS, color, colorTable, LUT_STEP, LUT_MAX, css };
+  return { DOMAIN, ICON_DOMAIN, MODELS, SCALE, gridOf, encode, decode, gunzip, inflate, cell, bilinear, sample, BEAUFORT, beaufort, ANCHORS, color, colorTable, LUT_STEP, LUT_MAX, css };
 });

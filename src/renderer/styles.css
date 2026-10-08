@@ -892,3 +892,5 @@ body.widget { background: transparent; overflow: hidden; }
 .vt-controls { display: grid; gap: 4px; }
 .vt-controls .switch-row { margin: 8px 0 0; font-weight: 400; font-size: 13.5px; }
 @media (max-width: 1040px) { .vt-legend { display: none; } }
+.vt-models { padding: 2px 0 12px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.vt-models .hint { margin-top: 6px; }

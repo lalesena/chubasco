@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
-/* Modo «Viento»: el viento del modelo GFS sobre el mapa, con partículas que
- * lo siguen y el fondo coloreado por la velocidad (o por las rachas), una
- * línea de tiempo hora a hora y, en el panel, el viento en la ubicación activa
- * o en el punto que se pinche, con la gráfica de las próximas horas.
+/* Modo «Viento»: el viento de un modelo (ECMWF, ICON-EU o GFS) sobre el mapa,
+ * con partículas que lo siguen y el fondo coloreado por la velocidad (o por
+ * las rachas), una línea de tiempo y, en el panel, el viento en la ubicación
+ * activa o en el punto que se pinche, con la gráfica de las próximas horas.
  * Los datos los publica la web cada hora (scripts/viento/datos.mjs; formato
  * en src/shared/windgrid.js). */
 (function () {
@@ -20,7 +20,18 @@
   const PLAY_MS = 700;
   const MAX_ZOOM = 7;       // al entrar: más cerca, la rejilla de 25 km se ve a manchas
   const LEGEND_MAX = 35;    // m/s al final de la leyenda
-  const ATTR = 'Viento: <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast">GFS</a> (NOAA)';
+  const CC_BY = '<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>';
+  // Atribución en el mapa de cada modelo (ECMWF y el DWD piden la licencia y avisar de que los datos están procesados).
+  const ATTR = {
+    ecmwf: (t) => `Viento <a href="https://www.ecmwf.int/">ECMWF</a> IFS (${CC_BY}, ${t('map.processed')})`,
+    'icon-eu': (t) => `Viento ICON-EU © <a href="https://www.dwd.de/">DWD</a> (${CC_BY}, ${t('map.processed')})`,
+    gfs: () => 'Viento <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast">GFS</a> (NOAA)'
+  };
+  const MODEL_KEY = 'chubasco.viento.modelo';
+  function savedModel() {
+    try { const m = localStorage.getItem(MODEL_KEY); if (WG.MODELS.some((x) => x.id === m)) return m; } catch (e) { /* almacenamiento bloqueado */ }
+    return WG.MODELS[0].id;
+  }
   // Flecha hacia abajo: girada `from` grados apunta hacia donde va el viento.
   const ARROW = '<svg class="vt-arrow" viewBox="0 0 16 16" aria-hidden="true" style="transform:rotate({deg}deg)"><path d="M8 2v11M3.8 8.8 8 13l4.2-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const arrow = (from) => ARROW.replace('{deg}', Math.round(from));
@@ -31,7 +42,7 @@
       open: false, index: null, indexAt: 0, error: null, gen: 0,
       steps: [], data: new Map(), loading: new Map(),
       cur: 0, playing: false, timer: null, refresher: null,
-      field: 'speed', particles: true,
+      model: savedModel(), field: 'speed', particles: true,
       point: null, placeKey: null, prevView: null, hover: null, marker: null
     };
     const t = (k, v) => getT()(k, v);
@@ -65,8 +76,10 @@
     async function loadIndex(force) {
       if (!force && st.index && Date.now() - st.indexAt < 10 * 60000) { pickSteps(); return; }
       try {
-        const idx = await api.viento('index.json');
-        if (!idx || idx.v !== 1 || !idx.grid || !Array.isArray(idx.steps) || !idx.steps.length) throw new Error('índice de viento no válido');
+        const model = st.model;
+        const idx = await api.viento(`${model}/index.json`);
+        if (model !== st.model) return; // se cambió de modelo mientras tanto
+        if (!idx || idx.v !== 1 || idx.model !== model || !idx.grid || !Array.isArray(idx.steps) || !idx.steps.length) throw new Error('índice de viento no válido');
         if (!st.index || st.index.run !== idx.run) { st.data.clear(); st.loading.clear(); st.gen++; }
         st.index = idx;
         st.indexAt = Date.now();
@@ -78,24 +91,24 @@
       if (st.index) pickSteps();
     }
 
-    // Desde la hora en curso (la última que ya ha empezado) hasta el final de la pasada.
-    function pickSteps() {
+    // Desde la hora en curso (la última que ya ha empezado) hasta el final de la
+    // pasada, y en la hora más cercana a la que se veía (otro modelo puede ir cada 3 h).
+    function pickSteps(keep = step() && step().t) {
       const all = st.index.steps;
       const now = Date.now();
       let first = 0;
       for (let i = 0; i < all.length; i++) if (all[i].t <= now) first = i;
-      const keep = step() && step().t;
       st.steps = all.slice(first);
-      const k = keep ? st.steps.findIndex((s) => s.t === keep) : -1;
-      st.cur = k >= 0 ? k : 0;
+      st.cur = 0;
+      if (keep) st.steps.forEach((s, i) => { if (Math.abs(s.t - keep) < Math.abs(st.steps[st.cur].t - keep)) st.cur = i; });
     }
 
     function loadStep(s) {
       if (st.data.has(s.f)) return Promise.resolve(st.data.get(s.f));
       if (!st.loading.has(s.f)) {
-        const gen = st.gen, grid = st.index.grid, scale = st.index.scale;
+        const gen = st.gen, grid = st.index.grid, scale = st.index.scale, model = st.model;
         const p = (async () => {
-          const raw = await WG.inflate(await api.viento(s.f));
+          const raw = await WG.inflate(await api.viento(`${model}/${s.f}`));
           const d = WG.decode(raw, grid, scale);
           if (gen === st.gen) st.data.set(s.f, d);
           return d;
@@ -436,7 +449,7 @@
         const s = st.steps[i];
         const isReady = st.data.has(s.f);
         if (isReady) ready++;
-        const day = i > 0 && new Date(s.t).getHours() === 0;
+        const day = i > 0 && !sameDay(s.t, st.steps[i - 1].t);
         b.className = 'tl-tick' + (isReady ? ' ready' : '') + (i === st.cur ? ' current' : '') + (day ? ' day' : '');
         b.title = `${weekday(s.t)} ${clock(s.t)}`;
         b.setAttribute('aria-selected', i === st.cur ? 'true' : 'false');
@@ -493,7 +506,7 @@
         (p.picked && getPlace() ? `<button type="button" class="link-btn small" data-back>${esc(t('viento.backTo', { name: getPlace().name }))}</button>` : '');
       const time = `<p class="vt-time">${esc(st.cur === 0 ? t('ui.now') : `${weekday(s.t, 'long')} ${clock(s.t)} · ${relText(st.cur)}`)}</p>`;
       if (!w) {
-        const msg = dataOf() ? t('viento.outside') : t('viento.loading');
+        const msg = dataOf() ? t('viento.outside', { model: modelName() }) : t('viento.loading');
         return head + time + `<p class="hint">${esc(msg)}</p>`;
       }
       const bft = WG.beaufort(w.speed);
@@ -510,11 +523,19 @@
     }
 
     const CH = { W: 336, H: 150, L: 4, R: 4, T: 34, B: 18 };
+    // Posición en la gráfica a escala de tiempo: hay modelos que van de hora en hora y luego de 3 en 3.
+    function chartX() {
+      const t0 = st.steps[0].t, span = Math.max(HOUR, st.steps[st.steps.length - 1].t - t0);
+      const pw = CH.W - CH.L - CH.R - 8;
+      return (ts) => CH.L + 4 + ((ts - t0) / span) * pw;
+    }
     function chartHtml(ser) {
       const n = ser.length;
-      const { W, H, T, B } = CH;
-      const pw = W - CH.L - CH.R, ph = H - T - B, bw = pw / n;
-      const x = (i) => CH.L + (i + 0.5) * bw;
+      const { W, H, T } = CH;
+      const ph = H - T - CH.B;
+      const X = chartX();
+      const x = (i) => X(st.steps[i].t);
+      const t0 = st.steps[0].t, tN = st.steps[n - 1].t;
       const top = niceMax(Math.max(mph() ? 10 : 20, ...ser.map((w) => (w ? val(w.gust) : 0))) * 1.08);
       const y = (v) => T + ph - (Math.min(v, top) / top) * ph;
       const path = (get) => {
@@ -529,11 +550,17 @@
       let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t('viento.chart'))}">`;
       for (const f of [0, 0.5, 1]) svg += `<line class="grid" x1="${CH.L}" x2="${W - CH.R}" y1="${(T + ph * f).toFixed(1)}" y2="${(T + ph * f).toFixed(1)}"/>`;
       svg += `<text class="axis" x="${CH.L}" y="${T - 4}">${top} ${unit()}</text>`;
-      // Medianoches: separador y día.
-      ser.forEach((_, i) => {
-        const ts = st.steps[i].t;
-        if (i > 0 && new Date(ts).getHours() === 0) svg += `<line class="grid day" x1="${(x(i) - bw / 2).toFixed(1)}" x2="${(x(i) - bw / 2).toFixed(1)}" y1="${T}" y2="${T + ph}"/>`;
-      });
+      // Horas (cada 6 o cada 12, según lo que abarque) y días, con un separador en cada medianoche.
+      const every = tN - t0 > 60 * HOUR ? 12 : 6;
+      const mark = new Date(t0);
+      mark.setMinutes(0, 0, 0);
+      while (mark.getTime() < t0 || mark.getHours() % every) mark.setHours(mark.getHours() + 1);
+      for (; mark.getTime() <= tN; mark.setHours(mark.getHours() + every)) {
+        const mx = X(mark.getTime()), h = mark.getHours();
+        if (h === 0) svg += `<line class="grid day" x1="${mx.toFixed(1)}" x2="${mx.toFixed(1)}" y1="${T}" y2="${T + ph}"/>`;
+        if (mx < 8 || mx > W - 8) continue;
+        svg += `<text class="axis${h === 0 ? ' strong' : ''}" x="${mx.toFixed(1)}" y="${H - 4}" text-anchor="middle">${esc(h === 0 ? weekday(mark.getTime()) : `${h}h`)}</text>`;
+      }
       // Área bajo el viento medio, por tramos sin huecos; encima, las líneas.
       for (let i = 0; i < n; i++) {
         if (!ser[i] || ser[i - 1]) continue;
@@ -544,17 +571,12 @@
       }
       svg += `<path class="vt-gust" d="${path((w) => val(w.gust))}"/>`;
       svg += `<path class="vt-speed" d="${path((w) => val(w.speed))}"/>`;
-      // Dirección cada 3 h, arriba.
+      // Dirección arriba, con sitio entre flechas.
+      let last = -Infinity;
       ser.forEach((w, i) => {
-        if (!w || w.speed < 0.5 || new Date(st.steps[i].t).getHours() % 3) return;
+        if (!w || w.speed < 0.5 || x(i) - last < 19) return;
+        last = x(i);
         svg += `<g transform="translate(${x(i).toFixed(1)},9) rotate(${Math.round(w.from)})"><path class="vt-dir" d="M0,-5.5V4.5M-3,1.5 0,4.5 3,1.5"/></g>`;
-      });
-      // Horas (cada 6) y días.
-      ser.forEach((_, i) => {
-        const d = new Date(st.steps[i].t);
-        if (d.getHours() % 6) return;
-        const label = d.getHours() === 0 ? weekday(d.getTime()) : `${d.getHours()}h`;
-        svg += `<text class="axis${d.getHours() === 0 ? ' strong' : ''}" x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle">${esc(label)}</text>`;
       });
       svg += `<line class="now-line" x1="${x(st.cur).toFixed(1)}" x2="${x(st.cur).toFixed(1)}" y1="${T - 2}" y2="${T + ph}"/>`;
       if (st.hover !== null && st.hover !== st.cur) svg += `<line class="vt-hover" x1="${x(st.hover).toFixed(1)}" x2="${x(st.hover).toFixed(1)}" y1="${T - 2}" y2="${T + ph}"/>`;
@@ -570,16 +592,27 @@
       return `${time} · ${speed(w.speed)} ${dir} · ${t('viento.gusts', { speed: speed(w.gust) })}`;
     }
 
+    const modelName = () => WG.MODELS.find((m) => m.id === st.model).name;
+    // Selector de modelo: siempre visible, también si un modelo no ha cargado.
+    function modelsHtml() {
+      return `<section class="vt-models">
+          <div class="seg small" role="group" aria-label="${esc(t('viento.model'))}">
+            ${WG.MODELS.map((m) => `<button type="button" data-model="${m.id}" aria-pressed="${st.model === m.id}">${esc(m.name)}</button>`).join('')}
+          </div>
+          <p class="hint">${esc(t('viento.m.' + st.model))}</p>
+        </section>`;
+    }
+
     function render() {
       if (!st.open) return;
       const el = dom.panel;
       if (!st.index) {
-        el.innerHTML = `<p class="hint agua-msg">${esc(st.error ? t('viento.error') : t('viento.loading'))}</p>`;
+        el.innerHTML = modelsHtml() + `<p class="hint agua-msg">${esc(st.error ? t('viento.error', { model: modelName() }) : t('viento.loading'))}</p>`;
         return;
       }
       const p = place();
       const s = step();
-      let html = '';
+      let html = modelsHtml();
       if (!p) {
         html += `<section class="vt-now"><p class="hint">${esc(t('viento.pickHint'))}</p></section>`;
       } else {
@@ -607,13 +640,14 @@
           </div>
           <label class="switch-row"><input type="checkbox" data-particles ${st.particles ? 'checked' : ''}> <span>${esc(t('viento.particles'))}</span></label>
         </section>
-        <footer class="agua-sources"><p>${esc(t('viento.sources', { day: weekday(st.index.runTime, 'long'), time: clock(st.index.runTime) }))}</p></footer>`;
+        <footer class="agua-sources"><p>${esc(t('viento.src.' + st.model, { day: weekday(st.index.runTime, 'long'), time: clock(st.index.runTime) }))}</p></footer>`;
       el.innerHTML = html;
     }
 
     // Eventos del panel (delegados: el contenido se rehace a menudo).
     dom.panel.addEventListener('click', (e) => {
       const b = e.target.closest('button');
+      if (b && b.dataset.model) { setModel(b.dataset.model); return; }
       if (b && b.dataset.field) { st.field = b.dataset.field; repaintColor(); renderLegend(); render(); return; }
       if (b && 'back' in b.dataset) { st.point = null; render(); updateMarker(); const loc = getPlace(); if (loc) map.panTo([loc.lat, loc.lon]); return; }
       const svg = e.target.closest('.vt-chart svg');
@@ -634,9 +668,12 @@
       const r = svg.getBoundingClientRect();
       const n = st.steps.length;
       if (!n || !r.width) return null;
-      const vx0 = ((e.clientX - r.left) / r.width) * CH.W;
-      const i = Math.floor((vx0 - CH.L) / ((CH.W - CH.L - CH.R) / n));
-      return i >= 0 && i < n ? i : null;
+      const px = ((e.clientX - r.left) / r.width) * CH.W;
+      if (px < CH.L || px > CH.W - CH.R) return null;
+      const X = chartX();
+      let best = 0;
+      st.steps.forEach((s, i) => { if (Math.abs(X(s.t) - px) < Math.abs(X(st.steps[best].t) - px)) best = i; });
+      return best;
     }
     // Solo la gráfica y la línea de lectura: rehacer todo el panel con cada movimiento del ratón sobra.
     function hoverRender() {
@@ -653,6 +690,37 @@
     dom.tl.prev.addEventListener('click', () => { pause(); stepBy(-1); });
     dom.tl.next.addEventListener('click', () => { pause(); stepBy(1); });
 
+    // Otro modelo: se mantienen la hora (la más cercana) y el punto.
+    async function setModel(id) {
+      if (id === st.model || !WG.MODELS.some((m) => m.id === id)) return;
+      try { localStorage.setItem(MODEL_KEY, id); } catch (e) { /* almacenamiento bloqueado */ }
+      const keep = step() && step().t;
+      pause();
+      st.model = id;
+      st.index = null;
+      st.error = null;
+      st.steps = [];
+      st.data.clear();
+      st.loading.clear();
+      st.gen++;
+      st.hover = null;
+      setAttribution(ATTR[id](getT()));
+      repaintColor();
+      stopParticles();
+      P.n = 0;
+      renderTimeline();
+      render();
+      updateMarker();
+      await loadIndex(true);
+      if (!st.open || st.model !== id || !st.index) { render(); return; }
+      pickSteps(keep);
+      // Si el mapa mira fuera de la zona del modelo (ICON-EU), se va a ella.
+      const g = st.index.grid, c = map.getCenter();
+      if (!WG.cell(g, c.lat, c.lng)) map.setView([g.north - ((g.rows - 1) * g.step) / 2, g.west + ((g.cols - 1) * g.step) / 2], 6);
+      goTo(st.cur);
+      prefetch();
+    }
+
     // ----------------------------------------------------------------
 
     async function open() {
@@ -660,7 +728,7 @@
       st.open = true;
       st.point = null;
       st.placeKey = getPlace() ? getPlace().id : null;
-      setAttribution(ATTR);
+      setAttribution(ATTR[st.model](getT()));
       st.prevView = { center: map.getCenter(), zoom: map.getZoom() };
       if (map.getZoom() > MAX_ZOOM) map.setZoom(MAX_ZOOM, { animate: false });
       colorLayer.addTo(map);
@@ -715,7 +783,7 @@
         const loc = getPlace();
         const key = loc ? loc.id : null;
         if (key !== st.placeKey) { st.placeKey = key; st.point = null; }
-        setAttribution(ATTR);
+        setAttribution(ATTR[st.model](getT()));
         updatePlayTitle();
         renderLegend();
         renderTimeline();

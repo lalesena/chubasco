@@ -830,13 +830,15 @@ function registerIpc() {
     return data;
   });
 
-  // Viento (GFS hora a hora): también lo publica la web (scripts/viento/datos.mjs).
-  // `file` es index.json o una hora de una pasada (2026100812/f018.gz, binario,
-  // que descomprime la interfaz). Solo se guardan las horas de la última pasada.
+  // Viento (ECMWF, ICON-EU y GFS): también lo publica la web (scripts/viento/datos.mjs).
+  // `file` es el índice de un modelo (ecmwf/index.json) o una hora de una pasada
+  // (ecmwf/2026100812/f018.gz, binario, que descomprime la interfaz). De cada
+  // modelo solo se guardan las horas de su última pasada.
   const viento = new Map();
-  ipcMain.handle('viento:get', async (_e, file = 'index.json') => {
-    if (!/^(index\.json|\d{10}\/f\d{3}\.gz)$/.test(file)) throw new Error('Fichero no válido');
-    const isIndex = file === 'index.json';
+  ipcMain.handle('viento:get', async (_e, file = '') => {
+    const m = /^(ecmwf|icon-eu|gfs)\/(index\.json|(\d{10})\/f\d{3}\.gz)$/.exec(file);
+    if (!m) throw new Error('Fichero no válido');
+    const isIndex = m[2] === 'index.json';
     const hit = viento.get(file);
     if (hit && (!isIndex || Date.now() - hit.at < 10 * 60000)) return hit.data;
     const repo = repoInfo(require('../../package.json'));
@@ -844,7 +846,7 @@ function registerIpc() {
     const res = await net.fetch(`https://${repo.owner}.github.io/${repo.repo}/viento/${file}`, { headers: { 'User-Agent': userAgent() }, signal: AbortSignal.timeout(30000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = isIndex ? await res.json() : new Uint8Array(await res.arrayBuffer());
-    if (!isIndex) for (const k of viento.keys()) if (k !== 'index.json' && k.slice(0, 10) !== file.slice(0, 10)) viento.delete(k);
+    if (!isIndex) for (const k of viento.keys()) if (k.startsWith(`${m[1]}/`) && !k.endsWith('/index.json') && !k.startsWith(`${m[1]}/${m[3]}/`)) viento.delete(k);
     viento.set(file, { at: Date.now(), data });
     return data;
   });

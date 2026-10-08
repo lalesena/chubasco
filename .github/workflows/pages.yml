@@ -44,8 +44,8 @@ jobs:
         run: |
           SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
           node --max-old-space-size=6144 scripts/agua/datos.mjs web/dist/agua "$SITE/agua"
-      # Viento (GFS de NOAA, hora a hora, para el modo «Viento»). Si la pasada
-      # no ha cambiado, o NOAA no responde, se copia la ya publicada.
+      # Viento para el modo «Viento»: ECMWF, ICON-EU (DWD) y GFS (NOAA). Si la
+      # pasada de un modelo no ha cambiado, o su fuente no responde, se copia la ya publicada.
       - name: Datos del viento
         continue-on-error: true
         run: |
