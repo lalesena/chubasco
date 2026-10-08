@@ -3,7 +3,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src https://tiles.openfreemap.org; worker-src blob:; child-src blob:; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src https://tiles.openfreemap.org; worker-src 'self'; child-src blob:; object-src 'none'; base-uri 'none'">
   <title>Chubasco</title>
   <link rel="stylesheet" href="../../node_modules/@fontsource-variable/archivo/wdth.css">
   <link rel="stylesheet" href="../../node_modules/leaflet/dist/leaflet.css">
@@ -391,8 +391,8 @@
   </dialog>
 
   <script src="../../node_modules/leaflet/dist/leaflet.js"></script>
-  <script src="../../node_modules/maplibre-gl/dist/maplibre-gl.js"></script>
-  <script src="../../node_modules/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+  <script type="module" src="maplibre.js"></script>
+  <script defer src="../../node_modules/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
   <script src="../shared/palette.js"></script>
   <script src="../shared/i18n.js"></script>
   <script src="../shared/forecast.js"></script>

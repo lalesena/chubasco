@@ -192,6 +192,8 @@
         if (my === st.baseSeq) { st.baseKey = null; st.baseRetry = setTimeout(() => setBase(k), 30000); }
         return;
       }
+      // maplibre y su plugin (módulo + defer) cargan al acabar de leerse la página.
+      if (!L.maplibreGL && document.readyState === 'loading') await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
       if (my !== st.baseSeq) return;
       if (st.baseLayer) map.removeLayer(st.baseLayer);
       if (st.labelsLayer) map.removeLayer(st.labelsLayer);

@@ -33,7 +33,7 @@ const DATA_HOSTS = [
 const CSP = {
   app: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; " +
     `img-src 'self' data: blob:; connect-src 'self' https://tiles.openfreemap.org ${DATA_HOSTS}; ` +
-    "worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
+    "worker-src 'self'; child-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
   embed: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; " +
     `connect-src 'self' ${DATA_HOSTS}; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`
 };
@@ -55,6 +55,7 @@ function rewrite(html, csp) {
     .replaceAll('../../node_modules/leaflet/dist/', 'vendor/leaflet/')
     .replaceAll('../../node_modules/maplibre-gl/dist/', 'vendor/maplibre/')
     .replaceAll('../../node_modules/@maplibre/maplibre-gl-leaflet/', 'vendor/maplibre/')
+    .replace('<script type="module" src="maplibre.js">', '<script type="module" src="js/maplibre.js">')
     .replace(/<script src="\.\.\/shared\/([\w-]+\.js)"><\/script>/g, '<script src="js/$1"></script>')
     .replace(/<script src="([\w-]+\.js)"><\/script>/g, '<script src="js/$1"></script>');
   if (out.includes('../') || !out.includes(csp)) throw new Error('Quedan rutas de la app sin adaptar');
@@ -88,7 +89,13 @@ await copy(path.join(NM, 'leaflet/dist/leaflet.js'), 'vendor/leaflet/leaflet.js'
 await copy(path.join(NM, 'leaflet/dist/leaflet.css'), 'vendor/leaflet/leaflet.css');
 await copy(path.join(NM, 'leaflet/dist/images'), 'vendor/leaflet/images');
 await copy(path.join(NM, 'leaflet/LICENSE'), 'vendor/leaflet/LICENSE');
-await copy(path.join(NM, 'maplibre-gl/dist/maplibre-gl.js'), 'vendor/maplibre/maplibre-gl.js');
+// maplibre-gl 6 solo es módulo ES (más su worker): lo importa js/maplibre.js, con la huella del fichero.
+const mlHash = (await import('node:crypto')).createHash('sha1').update(await fs.readFile(path.join(NM, 'maplibre-gl/dist/maplibre-gl.mjs'))).digest('hex').slice(0, 10);
+await copy(path.join(NM, 'maplibre-gl/dist/maplibre-gl.mjs'), 'vendor/maplibre/maplibre-gl.mjs');
+await copy(path.join(NM, 'maplibre-gl/dist/maplibre-gl-worker.mjs'), 'vendor/maplibre/maplibre-gl-worker.mjs');
+await write('js/maplibre.js', (await fs.readFile(path.join(ROOT, 'src/renderer/maplibre.js'), 'utf8'))
+  .replace('../../node_modules/maplibre-gl/dist/maplibre-gl.mjs', `../vendor/maplibre/maplibre-gl.mjs?v=${mlHash}`)
+  .replaceAll('../../node_modules/maplibre-gl/dist/', '../vendor/maplibre/'));
 await copy(path.join(NM, 'maplibre-gl/dist/maplibre-gl.css'), 'vendor/maplibre/maplibre-gl.css');
 await copy(path.join(NM, 'maplibre-gl/LICENSE.txt'), 'vendor/maplibre/LICENSE.txt');
 await copy(path.join(NM, '@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js'), 'vendor/maplibre/leaflet-maplibre-gl.js');
