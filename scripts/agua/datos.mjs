@@ -45,10 +45,12 @@ const dayKey = (t) => new Date(t * 1000).toISOString().slice(0, 10);
 const dayStart = (key) => Date.parse(key + 'T00:00:00Z') / 1000;
 const round1 = (v) => Math.round(v * 10) / 10;
 
+const UA = 'Chubasco (+https://github.com/lalesena/chubasco)';
+
 async function fetchOk(url, opts = {}, tries = 3) {
   for (let i = 1; ; i++) {
     try {
-      const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(60000) });
+      const res = await fetch(url, { ...opts, headers: { 'User-Agent': UA, ...(opts.headers || {}) }, signal: AbortSignal.timeout(120000) });
       if (res.ok || res.status === 404 || i >= tries) return res;
     } catch (e) {
       if (i >= tries) throw e;
@@ -260,16 +262,18 @@ const state = { version: 1, rain: prev.rain || {}, embalses: prev.embalses || nu
 const masks = buildMasks(CUENCAS.basins);
 log('máscaras', masks.basins.map((b) => `${b.id}:${b.pixels.length}`).join(' '));
 
+// Lo que falle se anota en agua.json (y se conservan los datos anteriores).
+const errors = {};
 let lluvia = null;
 try {
   const r = await rainfall(state.rain, masks, now);
   state.rain = r.state;
   lluvia = r.out;
-} catch (e) { log('lluvia:', e.stack || e.message); }
+} catch (e) { log('lluvia:', e.stack || e.message); errors.rain = String(e.message || e); }
 
 try {
   state.embalses = await reservoirs(state);
-} catch (e) { log('embalses:', e.message); }
+} catch (e) { log('embalses:', e.stack || e.message); errors.reservoirs = String((e.cause && e.cause.code) || e.message || e); }
 
 const agua = {
   updated: new Date(now * 1000).toISOString(),
@@ -279,7 +283,8 @@ const agua = {
     basins: CUENCAS.attribution
   },
   rain: lluvia,
-  reservoirs: state.embalses ? state.embalses.out : null
+  reservoirs: state.embalses ? state.embalses.out : null,
+  errors: Object.keys(errors).length ? errors : undefined
 };
 await fs.mkdir(OUT, { recursive: true });
 await fs.writeFile(path.join(OUT, 'agua.json'), JSON.stringify(agua));
