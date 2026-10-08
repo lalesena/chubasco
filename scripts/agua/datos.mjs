@@ -7,8 +7,12 @@
  *  - agua.json:   lo que leen la app y la web.
  *  - embalses/<cuenca>.json: histórico de cada embalse (la ficha lo pide al abrirse).
  *  - pluvio.json: lluvia medida en los pluviómetros de AEMET (resumen), y
- *    pluvio/<estación>.json con todas sus series; pluvio/archivo.json.gz es
- *    el estado de los pluviómetros (ver pluvio.mjs).
+ *    pluvio/<estación>.json con todas sus series (más su historia mensual,
+ *    normales y récords); pluvio/archivo.json.gz es el estado de los
+ *    pluviómetros (ver pluvio.mjs) y pluvio/historico.json.gz la historia larga
+ *    (ver historico.mjs), que se completa poco a poco, con un presupuesto de
+ *    peticiones por ejecución (HIST_CHUNKS, HIST_NORMALS, HIST_RECORDS,
+ *    HIST_BUDGET_S; HIST_RESET=1 permite que el histórico publicado encoja).
  *  - estado.json: lo necesario para la siguiente ejecución (lluvia por horas
  *                 y por días); se recupera de la web publicada.
  *
@@ -19,8 +23,9 @@
  *  - Embalses: MITECO, Boletín Hidrológico semanal (BD-Embalses), que se
  *    descarga solo cuando cambia (los martes).
  *  - Pluviómetros: AEMET OpenData, observación horaria de las estaciones
- *    automáticas (últimas 12 horas) y valores climatológicos diarios. Necesita
- *    la clave en AEMET_API_KEY (secreto de GitHub).
+ *    automáticas (últimas 12 horas), valores climatológicos diarios (desde
+ *    1920), normales 1991-2020 y valores extremos. Necesita la clave en
+ *    AEMET_API_KEY (secreto de GitHub).
  *
  * Uso: node scripts/agua/datos.mjs <carpeta de salida> [<URL o carpeta con el estado anterior>]
  */
@@ -33,6 +38,7 @@ import * as hdf5 from 'jsfive';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory } from './lib.mjs';
 import * as P from './pluvio.mjs';
+import * as H from './historico.mjs';
 
 const require = createRequire(import.meta.url);
 const TIFF = require('../../src/main/tiff.js');
@@ -62,7 +68,7 @@ async function fetchOk(url, opts = {}, tries = 3) {
   for (let i = 1; ; i++) {
     try {
       const res = await fetch(url, { ...opts, headers: { 'User-Agent': UA, ...(opts.headers || {}) }, signal: AbortSignal.timeout(120000) });
-      if (res.ok || res.status === 404 || i >= tries) return res;
+      if (res.ok || res.status === 404 || res.status === 429 || i >= tries) return res; // 429 (AEMET): sin reintento inmediato
     } catch (e) {
       if (i >= tries) throw e;
     }
@@ -256,52 +262,130 @@ async function reservoirs(state) {
 
 const AEMET = 'https://opendata.aemet.es/opendata/api/';
 
+class AemetError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+
 async function aemet(pathname, key) {
   const res = await fetchOk(AEMET + pathname, { headers: { api_key: key } });
-  if (!res.ok) throw new Error(`AEMET HTTP ${res.status}`);
+  if (!res.ok) throw new AemetError(`AEMET HTTP ${res.status}`, res.status);
   const env = await res.json();
   if (env.estado === 404) return []; // «No hay datos que satisfagan esos criterios»
-  if (env.estado !== 200 || !env.datos) throw new Error(`AEMET ${env.estado} ${env.descripcion || ''}`);
+  if (env.estado !== 200 || !env.datos) throw new AemetError(`AEMET ${env.estado} ${env.descripcion || ''}`, env.estado);
   const data = await fetchOk(env.datos);
-  if (!data.ok) throw new Error(`AEMET datos HTTP ${data.status}`);
+  if (!data.ok) throw new AemetError(`AEMET datos HTTP ${data.status}`, data.status);
   return JSON.parse(new TextDecoder('iso-8859-15').decode(await data.arrayBuffer()));
+}
+
+// Todas las peticiones a AEMET pasan por aquí: al menos 1,5 s entre una y otra y,
+// si el límite de peticiones salta (429), una espera de 61 s y, si vuelve a saltar,
+// ninguna petición más en esta ejecución.
+const AEMET_GAP = Number(process.env.AEMET_GAP_MS) || 1500;
+const gate = { last: 0, stopped: false };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function aemetCall(pathname, key) {
+  if (gate.stopped) throw new Error('AEMET: límite de peticiones, sin más consultas en esta ejecución');
+  for (let retry = 0; ; retry++) {
+    await sleep(Math.max(0, gate.last + AEMET_GAP - Date.now()));
+    try {
+      return await aemet(pathname, key);
+    } catch (e) {
+      if (e.status !== 429) throw e;
+      if (retry >= 1) { gate.stopped = true; throw e; }
+      log('AEMET: límite de peticiones (429), espero 61 s');
+      await sleep(61000);
+    } finally { gate.last = Date.now(); }
+  }
 }
 
 async function gauges(arch, now) {
   const key = process.env.AEMET_API_KEY;
   if (!key) { log('pluviómetros: sin AEMET_API_KEY'); return arch; }
   const ms = now * 1000;
-  const rows = await aemet('observacion/convencional/todas', key);
+  const rows = await aemetCall('observacion/convencional/todas', key);
   P.ingestHourly(arch, rows, ms);
   log('pluviómetros: observación,', rows.length, 'filas');
   // Valores diarios: los últimos días y, poco a poco, hacia atrás.
   for (const chunk of P.planDaily(arch, ms, { maxBack: Number(process.env.AEMET_MAX_CHUNKS) || 6 })) {
     try {
-      const daily = await aemet(`valores/climatologicos/diarios/datos/fechaini/${chunk.from}T00:00:00UTC/fechafin/${chunk.to}T23:59:59UTC/todasestaciones`, key);
+      const daily = await aemetCall(`valores/climatologicos/diarios/datos/fechaini/${chunk.from}T00:00:00UTC/fechafin/${chunk.to}T23:59:59UTC/todasestaciones`, key);
       P.ingestDaily(arch, daily, ms);
       P.markFetched(arch, chunk, ms);
       log('pluviómetros: días', chunk.from, chunk.to, daily.length, 'filas');
     } catch (e) { log('pluviómetros: días', chunk.from, chunk.to, e.message); break; }
-    await new Promise((r) => setTimeout(r, 1500));
   }
+  await history(arch, key, ms);
   return arch;
 }
 
-async function readArchive() {
-  if (!PREV) return null;
-  try {
-    let buf;
-    if (/^https?:/.test(PREV)) {
-      const res = await fetchOk(PREV.replace(/\/+$/, '') + '/pluvio/archivo.json.gz');
-      if (!res.ok) return null;
-      buf = Buffer.from(await res.arrayBuffer());
-    } else {
-      buf = await fs.readFile(path.join(PREV, 'pluvio', 'archivo.json.gz'));
+// Historia larga (historico.mjs): normales, récords y días antiguos, con un presupuesto
+// por ejecución para no pasar de unos minutos ni de las peticiones que AEMET admite.
+const envInt = (name, def) => (process.env[name] !== undefined && process.env[name] !== '' && Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : def);
+const HIST_CHUNKS = envInt('HIST_CHUNKS', 24); // tramos de 15 días de todas las estaciones
+const HIST_NORMALS = envInt('HIST_NORMALS', 10); // estaciones, 1 petición cada una
+const HIST_RECORDS = envInt('HIST_RECORDS', 5); // estaciones, hasta 3 peticiones cada una
+const HIST_BUDGET = envInt('HIST_BUDGET_S', 300) * 1000; // tiempo máximo de todo lo anterior
+
+async function history(arch, key, ms) {
+  const t0 = Date.now();
+  const left = () => !gate.stopped && Date.now() - t0 < HIST_BUDGET;
+  const today = new Date(ms).toISOString().slice(0, 10);
+  const ids = H.listedIds(arch);
+  // Lo que se pide a cada estación; tres fallos seguidos paran esa parte.
+  const each = async (what, items, fn) => {
+    let done = 0, fails = 0;
+    for (const id of items) {
+      if (!left() || fails >= 3) break;
+      try { await fn(id); done++; fails = 0; } catch (e) { fails++; log('histórico:', what, id, e.message); }
     }
-    return JSON.parse(gunzipSync(buf).toString('utf8'));
+    log('histórico:', what, done, 'estaciones');
+  };
+  await each('normales', H.due(hist, 'normals', ids, today, HIST_NORMALS), async (id) => {
+    let rows;
+    try { rows = await aemetCall(`valores/climatologicos/normales/estacion/${id}`, key); } catch (e) { H.failItem(hist, 'normals', id, today); throw e; }
+    H.setNormals(hist, id, rows, today);
+  });
+  const found = (x) => !!x && !(Array.isArray(x) && !x.length);
+  await each('récords', H.due(hist, 'records', ids, today, HIST_RECORDS), async (id) => {
+    const parts = {};
+    try {
+      for (const p of ['P', 'T', 'V']) {
+        if (p === 'V' && !found(parts.P) && !found(parts.T)) break; // sin lluvia ni temperatura, tampoco hay viento
+        parts[p] = await aemetCall(`valores/climatologicos/valoresextremos/parametro/${p}/estacion/${id}`, key);
+      }
+    } catch (e) { H.failItem(hist, 'records', id, today); throw e; }
+    H.setRecords(hist, id, parts, today);
+  });
+  // Días antiguos de todas las estaciones, hacia atrás desde el cursor.
+  let n = 0, chunk;
+  while (n < HIST_CHUNKS && left() && (chunk = H.nextChunk(hist))) {
+    try {
+      const rows = await aemetCall(`valores/climatologicos/diarios/datos/fechaini/${chunk.from}T00:00:00UTC/fechafin/${chunk.to}T23:59:59UTC/todasestaciones`, key);
+      if (!Array.isArray(rows)) throw new Error('respuesta inesperada');
+      const r = H.ingestChunk(hist, arch, chunk, rows, ids);
+      n++;
+      log('histórico: días', chunk.from, chunk.to, rows.length, 'filas,', r.ingested, 'de nuestras estaciones', r.advanced ? '' : '(vacío, se repetirá)');
+      if (!r.advanced) break;
+    } catch (e) { log('histórico: días', chunk.from, chunk.to, e.message); break; }
+  }
+  log('histórico:', JSON.stringify(H.progress(hist)));
+}
+
+// Los dos archivos de pluviómetros de la publicación anterior. Que no existan (404, o no
+// hay carpeta) es la primera vez: se empieza de cero. Cualquier otro fallo, tras reintentar,
+// para el programa antes de escribir nada, para que la web conserve lo publicado.
+async function readGaugeFiles() {
+  if (!PREV) return { archive: P.emptyArchive(), hist: H.emptyHistory(), histBuf: null, histBefore: 0 };
+  try {
+    const io = { headers: { 'User-Agent': UA } };
+    const a = await H.loadGz(PREV, 'pluvio/archivo.json.gz', io);
+    const h = await H.loadGz(PREV, 'pluvio/historico.json.gz', io);
+    const hist = h ? H.parseHistory(h.json) : H.emptyHistory();
+    return { archive: a ? a.json : P.emptyArchive(), hist, histBuf: h ? h.buf : null, histBefore: H.monthCount(hist) };
   } catch (e) {
-    log('archivo de pluviómetros:', e.message);
-    return null;
+    console.error(`Pluviómetros: no se pudo leer lo publicado antes (${e.message}); se para sin escribir nada.`);
+    process.exit(1);
   }
 }
 
@@ -324,7 +408,10 @@ async function readPrevious() {
 const now = Math.floor(Date.now() / 1000);
 const prev = await readPrevious();
 const state = { version: 2, rain: prev.rain || {}, embalses: prev.embalses || null };
-let archive = (await readArchive()) || P.emptyArchive();
+const loaded = await readGaugeFiles();
+let archive = loaded.archive;
+let hist = loaded.hist;
+{ const r = H.rollForward(hist, archive, now * 1000); if (r.days || r.waiting || r.lost) log('histórico: avance del borde', hist.edge, JSON.stringify(r)); }
 const masks = buildMasks(CUENCAS.basins);
 log('máscaras', masks.basins.map((b) => `${b.id}:${b.pixels.length}`).join(' '));
 
@@ -358,16 +445,36 @@ const agua = {
   reservoirs: state.embalses ? state.embalses.out : null,
   errors: Object.keys(errors).length ? errors : undefined
 };
+// Los archivos de pluviómetros y las fichas se preparan antes de escribir nada: si algo
+// falla aquí, no se escribe agua.json y la web conserva lo publicado antes.
+const archiveGz = archive.hourly ? gzipSync(JSON.stringify(archive)) : null;
+let histGz = null;
+if (hist.edge) {
+  // El histórico nunca encoge: si ha perdido meses con datos, se publica el anterior tal cual.
+  const g = H.guardShrink(loaded.histBefore, H.monthCount(hist), process.env.HIST_RESET === '1');
+  if (g.keep && loaded.histBuf) {
+    console.error(`ERROR histórico: ${g.after} meses con datos, menos que los ${g.before} publicados; se conserva el archivo anterior (HIST_RESET=1 para forzarlo)`);
+    process.exitCode = 1;
+    hist = H.parseHistory(JSON.parse(gunzipSync(loaded.histBuf).toString('utf8')));
+    histGz = loaded.histBuf;
+  } else histGz = gzipSync(JSON.stringify(hist));
+}
+const stationFiles = pluvio ? pluvio.stations.map((row) => [row[0], JSON.stringify({ source: agua.sources.gauges, ...P.stationFile(archive, row[0], row), ...H.stationExtras(hist, archive, row[0]) })]) : [];
 await fs.mkdir(OUT, { recursive: true });
 await fs.writeFile(path.join(OUT, 'agua.json'), JSON.stringify(agua));
 await fs.writeFile(path.join(OUT, 'estado.json'), JSON.stringify(state));
-if (archive.hourly) {
+if (archiveGz) {
   await fs.mkdir(path.join(OUT, 'pluvio'), { recursive: true });
-  await fs.writeFile(path.join(OUT, 'pluvio', 'archivo.json.gz'), gzipSync(JSON.stringify(archive)));
+  await fs.writeFile(path.join(OUT, 'pluvio', 'archivo.json.gz'), archiveGz);
+}
+if (histGz) {
+  await fs.mkdir(path.join(OUT, 'pluvio'), { recursive: true });
+  await fs.writeFile(path.join(OUT, 'pluvio', 'historico.json.gz'), histGz);
+  log('histórico publicado:', (histGz.length / 1024).toFixed(0), 'KB,', JSON.stringify(H.progress(hist)));
 }
 if (pluvio) {
   await fs.writeFile(path.join(OUT, 'pluvio.json'), JSON.stringify({ source: agua.sources.gauges, ...pluvio }));
-  for (const row of pluvio.stations) await fs.writeFile(path.join(OUT, 'pluvio', `${row[0]}.json`), JSON.stringify({ source: agua.sources.gauges, ...P.stationFile(archive, row[0], row) }));
+  for (const [id, text] of stationFiles) await fs.writeFile(path.join(OUT, 'pluvio', `${id}.json`), text);
   log('pluviómetros:', pluvio.stations.length, 'estaciones publicadas');
 }
 if (state.embalses && state.embalses.hist) {

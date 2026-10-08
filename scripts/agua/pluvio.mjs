@@ -11,6 +11,10 @@
  *    lluvia de cada día va de 07 a 07 UTC; AEMET los publica con unos días de
  *    retraso). Se descargan por tramos de 15 días, hacia atrás, poco a poco.
  * Cada serie es un array alineado con el inicio (hourly.t0, daily.d0).
+ *
+ * La historia más larga (meses desde 1920, normales y récords) no va aquí, para
+ * que este archivo siga siendo pequeño: está en historico.mjs. Lo único que
+ * necesita de este módulo es `daily` (los 2 últimos años) y `fetched`.
  */
 
 export const HOURS = 240; // 10 días
