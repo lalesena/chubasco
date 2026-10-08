@@ -816,7 +816,7 @@ function registerIpc() {
   // agua.json, pluvio.json o el histórico de embalses de una cuenca (embalses/ES030.json).
   const agua = new Map();
   ipcMain.handle('agua:get', async (_e, file = 'agua.json') => {
-    if (!/^(agua|pluvio|embalses\/ES\d{3})\.json$/.test(file)) throw new Error('Fichero no válido');
+    if (!/^(agua|pluvio|embalses\/ES\d{3}|pluvio\/[0-9A-Z]{1,8})\.json$/.test(file)) throw new Error('Fichero no válido');
     const hit = agua.get(file);
     if (hit && Date.now() - hit.at < 15 * 60000) return hit.data;
     const repo = repoInfo(require('../../package.json'));

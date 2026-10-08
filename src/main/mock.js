@@ -160,15 +160,37 @@ function aguaHistDemo(id) {
   return { date: weekDates[52], weekDates, total: { m0: '1988-01', m: Array.from({ length: 12 * 38 + 9 }, (_, k) => Math.round(55 + 20 * Math.sin(k / 9) * Math.cos(k / 60))) }, res };
 }
 
-// Pluviómetros, con la forma de pluvio.json: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días].
+// Pluviómetros, con la forma de pluvio.json: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días, desde el 1 oct, temperatura].
 function pluvioDemo() {
   const stations = [];
   for (let i = 0; i < 70; i++) {
     const lat = 36.4 + ((i * 37) % 70) / 10, lon = -8.6 + ((i * 53) % 115) / 10;
     const wet = Math.max(0, Math.sin(i * 0.7) * 18);
-    stations.push([`D${i}`, `Estación ${i + 1}`, Math.round(lat * 1e4) / 1e4, Math.round(lon * 1e4) / 1e4, i % 5 === 0 ? Math.round(wet / 4) / 2 : 0, Math.round(wet * 10) / 10, Math.round(wet * 25) / 10, null]);
+    stations.push([`D${i}`, `Estación ${i + 1}`, Math.round(lat * 1e4) / 1e4, Math.round(lon * 1e4) / 1e4, i % 5 === 0 ? Math.round(wet / 4) / 2 : 0, Math.round(wet * 10) / 10, Math.round(wet * 25) / 10, Math.round(wet * 60) / 10, Math.round(wet * 30) / 10, Math.round(150 + 60 * Math.sin(i)) / 10]);
   }
   return { source: '© AEMET', until: new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString(), stations };
+}
+
+// Ficha de un pluviómetro, con la forma de pluvio/<id>.json.
+function pluvioStationDemo(id) {
+  const row = pluvioDemo().stations.find((x) => x[0] === id);
+  if (!row) return null;
+  const H = 240, D = 731, now = Math.floor(Date.now() / 3600000) * 3600000;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const hour = (f) => Array.from({ length: H }, (_, i) => r1(f(i)));
+  const day = (f) => Array.from({ length: D - 4 }, (_, i) => r1(f(i)));
+  return {
+    source: '© AEMET', id, name: row[1], prov: 'Provincia', alt: 640, lat: row[2], lon: row[3],
+    now: { h1: row[4], h24: row[5], d7: row[6], d30: row[7], year: row[8] },
+    hourly: { t0: new Date(now - (H - 1) * 3600000).toISOString(), vars: {
+      prec: hour((i) => (i % 37 < 4 ? 1.2 + (i % 3) : 0)), ta: hour((i) => 15 + 6 * Math.sin((i - 9) / 3.82)), tamin: hour((i) => 14 + 6 * Math.sin((i - 9) / 3.82)), tamax: hour((i) => 16 + 6 * Math.sin((i - 9) / 3.82)),
+      hr: hour((i) => 65 - 20 * Math.sin((i - 9) / 3.82)), vv: hour((i) => 3 + 2 * Math.sin(i / 7)), vmax: hour((i) => 7 + 3 * Math.sin(i / 7)), dv: hour((i) => (i * 7) % 360), pres_nmar: hour((i) => 1015 + 6 * Math.sin(i / 40))
+    } },
+    daily: { d0: new Date(now - (D - 1) * 86400000).toISOString().slice(0, 10), vars: {
+      prec: day((i) => (i % 9 === 0 ? 4 + (i % 23) : 0)), tmax: day((i) => 22 + 9 * Math.sin((i - 100) / 58)), tmin: day((i) => 10 + 7 * Math.sin((i - 100) / 58)), tmed: day((i) => 16 + 8 * Math.sin((i - 100) / 58)),
+      velmedia: day((i) => 2.5 + Math.sin(i / 5)), racha: day((i) => 9 + 4 * Math.sin(i / 5)), hrMedia: day((i) => 60 - 15 * Math.sin((i - 100) / 58))
+    } }
+  };
 }
 
 function json(obj) {
@@ -212,6 +234,8 @@ function install() {
     if (u.host === OPERA_HOST) return operaResponse(req, u);
     if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/agua.json')) return json(aguaDemo());
     if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/pluvio.json')) return json(pluvioDemo());
+    const station = u.host.endsWith('.github.io') && /\/agua\/pluvio\/([0-9A-Z]+)\.json$/.exec(u.pathname);
+    if (station) { const f = pluvioStationDemo(station[1]); return f ? json(f) : new Response('', { status: 404 }); }
     const hist = u.host.endsWith('.github.io') && /\/agua\/embalses\/(ES\d{3})\.json$/.exec(u.pathname);
     if (hist) { const h = aguaHistDemo(hist[1]); return h ? json(h) : new Response('', { status: 404 }); }
     if (u.host === 'api.open-meteo.com') return json(forecast());

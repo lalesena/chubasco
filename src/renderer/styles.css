@@ -733,6 +733,16 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-gauges button:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
 .agua-gauges span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agua-gauges .val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agua-rain.five { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.agua-rain.five div { padding: 5px 4px; }
+.agua-rain.five dd { font-size: 12.5px; white-space: nowrap; }
+.agua-rain.five dt { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 14px 0 0; }
+.chips button { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; }
+.chips button:hover { color: var(--ink); }
+.chips button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.agua-csv { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); }
+.agua-dam small { color: var(--muted); }
 .agua-dam { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 6px 0 0; font-size: 13px; }
 .agua-dam div { display: contents; }
 .agua-dam dt { color: var(--muted); }

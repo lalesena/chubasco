@@ -4,7 +4,9 @@
  *
  *  - agua.json:   lo que leen la app y la web.
  *  - embalses/<cuenca>.json: histórico de cada embalse (la ficha lo pide al abrirse).
- *  - pluvio.json: lluvia medida en los pluviómetros de AEMET.
+ *  - pluvio.json: lluvia medida en los pluviómetros de AEMET (resumen), y
+ *    pluvio/<estación>.json con todas sus series; pluvio/archivo.json.gz es
+ *    el estado de los pluviómetros (ver pluvio.mjs).
  *  - estado.json: lo necesario para la siguiente ejecución (lluvia por horas
  *                 y por días); se recupera de la web publicada.
  *
@@ -14,8 +16,9 @@
  *    de la península); los días que falten, del archivo (HDF5).
  *  - Embalses: MITECO, Boletín Hidrológico semanal (BD-Embalses), que se
  *    descarga solo cuando cambia (los martes).
- *  - Pluviómetros: AEMET OpenData, observación de las estaciones automáticas
- *    (últimas 12 horas). Necesita la clave en AEMET_API_KEY (secreto de GitHub).
+ *  - Pluviómetros: AEMET OpenData, observación horaria de las estaciones
+ *    automáticas (últimas 12 horas) y valores climatológicos diarios. Necesita
+ *    la clave en AEMET_API_KEY (secreto de GitHub).
  *
  * Uso: node scripts/agua/datos.mjs <carpeta de salida> [<URL o carpeta con el estado anterior>]
  */
@@ -25,7 +28,9 @@ import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
 import MDBReader from 'mdb-reader';
 import * as hdf5 from 'jsfive';
-import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory, gaugeIngest, gaugeSummary } from './lib.mjs';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory } from './lib.mjs';
+import * as P from './pluvio.mjs';
 
 const require = createRequire(import.meta.url);
 const TIFF = require('../../src/main/tiff.js');
@@ -247,19 +252,55 @@ async function reservoirs(state) {
 // ---------------------------------------------------------------------------
 // Pluviómetros (AEMET OpenData): dos pasos, la respuesta da la URL de los datos.
 
-async function gauges(state, now) {
-  const key = process.env.AEMET_API_KEY;
-  if (!key) { log('pluviómetros: sin AEMET_API_KEY'); return state; }
-  const res = await fetchOk('https://opendata.aemet.es/opendata/api/observacion/convencional/todas', { headers: { api_key: key } });
+const AEMET = 'https://opendata.aemet.es/opendata/api/';
+
+async function aemet(pathname, key) {
+  const res = await fetchOk(AEMET + pathname, { headers: { api_key: key } });
   if (!res.ok) throw new Error(`AEMET HTTP ${res.status}`);
   const env = await res.json();
+  if (env.estado === 404) return []; // «No hay datos que satisfagan esos criterios»
   if (env.estado !== 200 || !env.datos) throw new Error(`AEMET ${env.estado} ${env.descripcion || ''}`);
   const data = await fetchOk(env.datos);
   if (!data.ok) throw new Error(`AEMET datos HTTP ${data.status}`);
-  const rows = JSON.parse(new TextDecoder('iso-8859-15').decode(await data.arrayBuffer()));
-  const next = gaugeIngest(state, rows, now * 1000);
-  log('pluviómetros:', rows.length, 'observaciones,', next.ids.length, 'estaciones');
-  return next;
+  return JSON.parse(new TextDecoder('iso-8859-15').decode(await data.arrayBuffer()));
+}
+
+async function gauges(arch, now) {
+  const key = process.env.AEMET_API_KEY;
+  if (!key) { log('pluviómetros: sin AEMET_API_KEY'); return arch; }
+  const ms = now * 1000;
+  const rows = await aemet('observacion/convencional/todas', key);
+  P.ingestHourly(arch, rows, ms);
+  log('pluviómetros: observación,', rows.length, 'filas');
+  // Valores diarios: los últimos días y, poco a poco, hacia atrás.
+  for (const chunk of P.planDaily(arch, ms, { maxBack: Number(process.env.AEMET_MAX_CHUNKS) || 6 })) {
+    try {
+      const daily = await aemet(`valores/climatologicos/diarios/datos/fechaini/${chunk.from}T00:00:00UTC/fechafin/${chunk.to}T23:59:59UTC/todasestaciones`, key);
+      P.ingestDaily(arch, daily, ms);
+      P.markFetched(arch, chunk, ms);
+      log('pluviómetros: días', chunk.from, chunk.to, daily.length, 'filas');
+    } catch (e) { log('pluviómetros: días', chunk.from, chunk.to, e.message); break; }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return arch;
+}
+
+async function readArchive() {
+  if (!PREV) return null;
+  try {
+    let buf;
+    if (/^https?:/.test(PREV)) {
+      const res = await fetchOk(PREV.replace(/\/+$/, '') + '/pluvio/archivo.json.gz');
+      if (!res.ok) return null;
+      buf = Buffer.from(await res.arrayBuffer());
+    } else {
+      buf = await fs.readFile(path.join(PREV, 'pluvio', 'archivo.json.gz'));
+    }
+    return JSON.parse(gunzipSync(buf).toString('utf8'));
+  } catch (e) {
+    log('archivo de pluviómetros:', e.message);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +321,8 @@ async function readPrevious() {
 
 const now = Math.floor(Date.now() / 1000);
 const prev = await readPrevious();
-const state = { version: 2, rain: prev.rain || {}, embalses: prev.embalses || null, pluvio: prev.pluvio || null };
+const state = { version: 2, rain: prev.rain || {}, embalses: prev.embalses || null };
+let archive = (await readArchive()) || P.emptyArchive();
 const masks = buildMasks(CUENCAS.basins);
 log('máscaras', masks.basins.map((b) => `${b.id}:${b.pixels.length}`).join(' '));
 
@@ -298,9 +340,9 @@ try {
 } catch (e) { log('embalses:', e.stack || e.message); errors.reservoirs = String((e.cause && e.cause.code) || e.message || e); }
 
 try {
-  state.pluvio = await gauges(state.pluvio, now);
+  archive = await gauges(archive, now);
 } catch (e) { log('pluviómetros:', e.stack || e.message); errors.gauges = String((e.cause && e.cause.code) || e.message || e); }
-const pluvio = state.pluvio ? gaugeSummary(state.pluvio, now * 1000) : null;
+const pluvio = P.summarize(archive, now * 1000);
 
 const agua = {
   updated: new Date(now * 1000).toISOString(),
@@ -317,7 +359,15 @@ const agua = {
 await fs.mkdir(OUT, { recursive: true });
 await fs.writeFile(path.join(OUT, 'agua.json'), JSON.stringify(agua));
 await fs.writeFile(path.join(OUT, 'estado.json'), JSON.stringify(state));
-if (pluvio) await fs.writeFile(path.join(OUT, 'pluvio.json'), JSON.stringify({ source: agua.sources.gauges, ...pluvio }));
+if (archive.hourly) {
+  await fs.mkdir(path.join(OUT, 'pluvio'), { recursive: true });
+  await fs.writeFile(path.join(OUT, 'pluvio', 'archivo.json.gz'), gzipSync(JSON.stringify(archive)));
+}
+if (pluvio) {
+  await fs.writeFile(path.join(OUT, 'pluvio.json'), JSON.stringify({ source: agua.sources.gauges, ...pluvio }));
+  for (const row of pluvio.stations) await fs.writeFile(path.join(OUT, 'pluvio', `${row[0]}.json`), JSON.stringify({ source: agua.sources.gauges, ...P.stationFile(archive, row[0], row) }));
+  log('pluviómetros:', pluvio.stations.length, 'estaciones publicadas');
+}
 if (state.embalses && state.embalses.hist) {
   await fs.mkdir(path.join(OUT, 'embalses'), { recursive: true });
   for (const [id, h] of Object.entries(state.embalses.hist)) await fs.writeFile(path.join(OUT, 'embalses', `${id}.json`), JSON.stringify(h));

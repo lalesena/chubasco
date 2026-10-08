@@ -50,6 +50,11 @@ jobs:
           curl -fsS -o web/dist/agua/agua.json "$SITE/agua/agua.json" || true
           curl -fsS -o web/dist/agua/estado.json "$SITE/agua/estado.json" || true
           curl -fsS -o web/dist/agua/pluvio.json "$SITE/agua/pluvio.json" || true
+          mkdir -p web/dist/agua/pluvio
+          curl -fsS -o web/dist/agua/pluvio/archivo.json.gz "$SITE/agua/pluvio/archivo.json.gz" || true
+          if [ -f web/dist/agua/pluvio.json ]; then
+            node -p "require('./web/dist/agua/pluvio.json').stations.map((s) => s[0]).join('\n')" | xargs -P 16 -I{} curl -fsS -o "web/dist/agua/pluvio/{}.json" "$SITE/agua/pluvio/{}.json" || true
+          fi
           mkdir -p web/dist/agua/embalses
           for id in $(node -p "require('./src/shared/cuencas.js').basins.map((b) => b.id).join(' ')"); do
             curl -fsS -o "web/dist/agua/embalses/$id.json" "$SITE/agua/embalses/$id.json" || true

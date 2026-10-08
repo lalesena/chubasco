@@ -143,8 +143,10 @@ test('presas: cada embalse del inventario está en su cuenca y en España', () =
   assert.ok(Math.abs(a.lat - 39.73) < 0.02 && Math.abs(a.lon + 6.886) < 0.02, 'Alcántara, en su presa');
 });
 
-test('pluviómetros: horas, días completos, 24 h y nombres', async () => {
-  const { gaugeIngest, gaugeSummary, gaugeName } = await lib();
+const pluvio = () => import(pathToFileURL(path.join(__dirname, '../scripts/agua/pluvio.mjs')).href);
+
+test('pluviómetros: observación horaria, 24 h, temperatura y nombres', async () => {
+  const P = await pluvio();
   const H = 3600000;
   const now = Date.UTC(2026, 9, 8, 9, 20);
   const fint = (t) => new Date(t).toISOString().replace('.000Z', '+0000');
@@ -152,26 +154,73 @@ test('pluviómetros: horas, días completos, 24 h y nombres', async () => {
   // 60 horas: A llueve 1 mm cada hora; B nada; C solo las horas pares.
   for (let h = 0; h < 60; h++) {
     const t = Date.UTC(2026, 9, 8, 9) - h * H;
-    rows.push({ idema: 'A', ubi: 'MADRID  RETIRO', lat: 40.41, lon: -3.68, fint: fint(t), prec: 1 });
+    rows.push({ idema: 'A', ubi: 'MADRID  RETIRO', lat: 40.41, lon: -3.68, alt: 667, fint: fint(t), prec: 1, ta: 20 - h / 10, hr: 60 });
     rows.push({ idema: 'B', ubi: 'B', lat: 41, lon: -4, fint: fint(t), prec: 0 });
     if (h % 2 === 0) rows.push({ idema: 'C', ubi: 'C', lat: 42, lon: -5, fint: fint(t), prec: 0.5 });
   }
   rows.push({ idema: 'D', ubi: 'D', lat: 42, lon: -5, fint: fint(Date.UTC(2026, 9, 8, 9)) }); // sin prec
-  const st = gaugeIngest(null, rows, now);
-  assert.ok(Object.keys(st.hours).length <= 50, 'solo las últimas 50 horas');
-  assert.deepEqual(st.days['2026-10-07'].slice(0, 3), [24, 0, null], 'día completo; C no llega a 22 horas');
-  const out = gaugeSummary(st, now);
+  const arch = P.ingestHourly(P.emptyArchive(), rows, now);
+  assert.equal(arch.hourly.data.A.prec.length, P.HOURS);
+  const out = P.summarize(arch, now);
   assert.equal(out.until, '2026-10-08T09:00:00.000Z');
   const by = Object.fromEntries(out.stations.map((x) => [x[0], x]));
   assert.deepEqual(by.A.slice(1, 6), ['Madrid, Retiro', 40.41, -3.68, 1, 24]);
+  assert.equal(by.A[9], 20, 'última temperatura');
   assert.equal(by.B[5], 0);
   assert.equal(by.C[5], null, 'C tiene 12 de 24 horas');
-  assert.equal(by.A[6], null, 'una semana necesita al menos 6 días');
+  assert.equal(by.A[6], null, 'sin días climatológicos, 7 días no llegan');
   assert.ok(!by.D, 'sin lluvia medida no se publica');
-  // Otra ejecución una hora después conserva lo anterior.
-  const st2 = gaugeIngest(st, [{ idema: 'A', ubi: 'MADRID  RETIRO', lat: 40.41, lon: -3.68, fint: fint(Date.UTC(2026, 9, 8, 10)), prec: 3 }], now + H);
-  assert.equal(gaugeSummary(st2, now + H).stations.find((x) => x[0] === 'A')[5], 26);
-  assert.equal(gaugeName('LES PLANES D?HOSTOLES'), "Les Planes d'Hostoles");
+  // Una hora después: las series se desplazan.
+  P.ingestHourly(arch, [{ idema: 'A', ubi: 'MADRID  RETIRO', lat: 40.41, lon: -3.68, fint: fint(Date.UTC(2026, 9, 8, 10)), prec: 3 }], now + H);
+  assert.equal(P.summarize(arch, now + H).stations.find((x) => x[0] === 'A')[5], 26);
+  const f = P.stationFile(arch, 'A', by.A);
+  assert.deepEqual(Object.keys(f.hourly.vars).sort(), ['hr', 'prec', 'ta']);
+  assert.equal(f.alt, 667);
+  assert.equal(P.gaugeName('LES PLANES D?HOSTOLES'), "Les Planes d'Hostoles");
+  assert.equal(P.gaugeName("L'ESTARTIT"), "L'Estartit");
+});
+
+test('pluviómetros: días climatológicos (07 a 07) más las horas siguientes', async () => {
+  const P = await pluvio();
+  const H = 3600000, D = 86400000;
+  const now = Date.UTC(2026, 9, 8, 9, 20);
+  const day = (t) => new Date(t).toISOString().slice(0, 10);
+  const daily = [];
+  for (let t = Date.UTC(2026, 8, 15); t <= Date.UTC(2026, 9, 4); t += D) daily.push({ fecha: day(t), indicativo: 'A', nombre: 'MADRID', provincia: 'MADRID', altitud: '667', prec: '1,0', tmax: '25,4', tmin: '12,0', dir: '99' });
+  daily.push({ fecha: '2026-10-04', indicativo: 'B', prec: 'Acum' });
+  const fint = (t) => new Date(t).toISOString().replace('.000Z', '+0000');
+  const hourly = [];
+  for (let h = 0; h < P.HOURS; h++) hourly.push({ idema: 'A', ubi: 'MADRID', lat: 40.41, lon: -3.68, fint: fint(Date.UTC(2026, 9, 8, 9) - h * H), prec: 0.5 });
+  const arch = P.ingestDaily(P.ingestHourly(P.emptyArchive(), hourly, now), daily, now);
+  assert.equal(arch.daily.d0, '2026-09-15');
+  assert.equal(arch.daily.n, 20);
+  assert.equal(arch.daily.data.A.dir, undefined, 'dirección variable: sin dato');
+  assert.equal(arch.meta.A.prov, 'Madrid');
+  const row = P.summarize(arch, now).stations.find((x) => x[0] === 'A');
+  // 7 días desde el 1 oct 07:00: 4 días (1–4 oct) y 74 horas desde el 5 oct 07:00.
+  assert.equal(row[6], 4 + 74 * 0.5);
+  assert.equal(row[7], null, '30 días: los días guardados empiezan el 15 de septiembre');
+  assert.equal(P.dailyNumber('prec', 'Ip'), 0);
+  assert.equal(P.dailyNumber('prec', 'Acum'), null);
+  assert.equal(P.dailyNumber('dir', '27'), 270);
+});
+
+test('pluviómetros: qué tramos diarios pedir', async () => {
+  const P = await pluvio();
+  const H = 3600000;
+  const now = Date.UTC(2026, 9, 8, 9, 20);
+  const arch = P.emptyArchive();
+  const plan = P.planDaily(arch, now, { maxBack: 2 });
+  assert.deepEqual(plan.map((c) => [c.kind, c.from, c.to]), [
+    ['latest', '2026-09-24', '2026-10-08'],
+    ['back', '2026-09-09', '2026-09-23'],
+    ['back', '2026-08-25', '2026-09-08']
+  ]);
+  for (const c of plan) P.markFetched(arch, c, now);
+  const next = P.planDaily(arch, now + H, { maxBack: 1 });
+  assert.deepEqual(next.map((c) => [c.kind, c.from]), [['back', '2026-08-10']], 'los últimos días no se repiten antes de 3 horas');
+  arch.fetched.oldest = '2024-10-07';
+  assert.deepEqual(P.planDaily(arch, now + H), [], 'dos años completos');
 });
 
 test('el script de datos importa todo lo que usa de lib.mjs', async () => {
