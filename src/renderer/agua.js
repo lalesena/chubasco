@@ -288,7 +288,8 @@
         </footer>`;
       // Gráficas, una vez el panel tiene tamaño.
       const r = st.data.reservoirs;
-      const labels = r && r.weekDates ? [dateText(r.weekDates[0]).replace(/ de /, ' '), dateText(r.weekDates[r.weekDates.length - 1]).replace(/ de /, ' ')] : null;
+      const monthYear = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString(locale(), { month: 'short', year: 'numeric' });
+      const labels = r && r.weekDates ? [monthYear(r.weekDates[0]), monthYear(r.weekDates[r.weekDates.length - 1])] : null;
       el.querySelectorAll('canvas[data-chart]').forEach((c) => {
         const kind = c.dataset.chart;
         if (kind === 'total') chartLine(c, r.total.weeks, r.total.weeksAvg, labels);
