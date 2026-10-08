@@ -200,6 +200,16 @@ test('pluviómetros: días climatológicos (07 a 07) más las horas siguientes',
   // 7 días desde el 1 oct 07:00: 4 días (1–4 oct) y 74 horas desde el 5 oct 07:00.
   assert.equal(row[6], 4 + 74 * 0.5);
   assert.equal(row[7], null, '30 días: los días guardados empiezan el 15 de septiembre');
+  // Con un hueco entre el último día y las horas guardadas (solo 12 horas), los
+  // periodos terminan en el último día publicado (5 oct, 07:00 UTC).
+  const short = P.ingestDaily(P.ingestHourly(P.emptyArchive(), hourly.slice(0, 12), now), daily, now);
+  const s2 = P.summarize(short, now);
+  assert.equal(s2.periodsUntil, '2026-10-05T07:00:00.000Z');
+  const a2 = s2.stations.find((x) => x[0] === 'A');
+  assert.equal(a2[6], 7, '7 días: del 28 sept al 4 oct');
+  assert.equal(a2[7], null, '30 días: no hay tantos días');
+  assert.equal(a2[8], 4, 'desde el 1 oct: 1–4 oct');
+  assert.equal(P.summarize(arch, now).periodsUntil, '2026-10-08T09:00:00.000Z');
   assert.equal(P.dailyNumber('prec', 'Ip'), 0);
   assert.equal(P.dailyNumber('prec', 'Acum'), null);
   assert.equal(P.dailyNumber('dir', '27'), 270);

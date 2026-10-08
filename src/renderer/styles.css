@@ -798,6 +798,7 @@ body.widget { background: transparent; overflow: hidden; }
 .leaflet-tooltip.agua-label { background: color-mix(in srgb, var(--surface) 82%, transparent); border: 0; border-radius: 4px; box-shadow: none; padding: 1px 5px; font: 680 12.5px var(--font); font-stretch: 90%; color: var(--ink); white-space: nowrap; }
 .leaflet-tooltip.agua-label::before { display: none; }
 .agua-legend { position: absolute; left: 12px; bottom: 40px; z-index: 900; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 8px 10px; font-size: 11px; color: var(--muted); }
+.agua-legend-note { margin-top: 4px; max-width: 190px; font-size: 10.5px; }
 .agua-legend-title { color: var(--ink); font-weight: 620; margin-bottom: 4px; }
 .agua-legend-bar { display: flex; }
 .agua-legend-bar span { width: 30px; height: 9px; }

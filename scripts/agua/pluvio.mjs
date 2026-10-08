@@ -171,9 +171,9 @@ const r1 = (v) => Math.round(v * 10) / 10;
 /**
  * Lluvia desde `from` (ms) hasta la última hora: los días climatológicos que
  * haya (07 a 07 UTC) y, después del último, las horas. null si falta más del
- * 10 % de los días o de las horas.
+ * 10 % de los días o de las horas. Con `daysOnly`, solo los días.
  */
-function rainSince(arch, id, from) {
+function rainSince(arch, id, from, daysOnly) {
   const h = arch.hourly, d = arch.daily;
   const hs = h && h.data[id] && h.data[id].prec;
   const ds = d && d.data[id] && d.data[id].prec;
@@ -195,7 +195,7 @@ function rainSince(arch, id, from) {
   }
   if (need && got < need * 0.9) return null;
   if (first !== null && first > from) return null; // los días guardados empiezan después
-  if (!h) return need ? r1(mm) : null;
+  if (!h || daysOnly) return need ? r1(mm) : null;
   // Horas que terminan después de `cursor`.
   let hn = 0, hg = 0;
   for (let i = 0; i < HOURS; i++) {
@@ -224,7 +224,27 @@ function hydroStart(now) {
   return Date.UTC(y, 9, 1, 7);
 }
 
-/** Resumen por estación: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días, desde el 1 de octubre, temperatura]. */
+/**
+ * Hasta dónde llegan los periodos de varios días. Lo normal es hasta la
+ * última hora (días climatológicos y luego horas). Si entre el último día
+ * publicado y las horas guardadas hay un hueco (al empezar, o si la tarea se
+ * paró), los periodos terminan en el último día publicado: {end, daysOnly}.
+ */
+function periodEnd(arch, end) {
+  const d = arch.daily, h = arch.hourly;
+  if (!d) return { end, daysOnly: false };
+  const dEnd = dayMs(d.d0) + d.n * DAY + 7 * HOUR; // fin del último día climatológico
+  // Primera hora guardada con lluvia en alguna estación (el resto de la ventana puede estar vacío).
+  let first = HOURS;
+  if (h) for (const sr of Object.values(h.data)) if (sr.prec) for (let i = 0; i < first; i++) if (sr.prec[i] !== null) { first = i; break; }
+  if (h && first < HOURS && h.t0 + (first - 1) * HOUR <= dEnd) return { end, daysOnly: false };
+  return { end: dEnd, daysOnly: true };
+}
+
+/**
+ * Resumen por estación: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días,
+ * desde el 1 de octubre, temperatura], y hasta cuándo llegan los periodos.
+ */
 export function summarize(arch, now) {
   if (!arch.hourly) return null;
   // La última hora con lluvia medida en alguna estación (la en curso aún no ha llegado).
@@ -232,7 +252,8 @@ export function summarize(arch, now) {
   for (const s of Object.values(arch.hourly.data)) if (s.prec) for (let i = HOURS - 1; i > iLast; i--) if (s.prec[i] !== null) { iLast = i; break; }
   if (iLast < 0) return null;
   const end = arch.hourly.t0 + iLast * HOUR;
-  const today7 = dayMs(dayKey(end)) + 7 * HOUR;
+  const P = periodEnd(arch, end);
+  const today7 = dayMs(dayKey(P.end - 7 * HOUR)) + 7 * HOUR; // 07:00 UTC del último día del periodo
   const stations = [];
   for (const [id, m] of Object.entries(arch.meta)) {
     if (!Number.isFinite(m.lat)) continue;
@@ -244,10 +265,11 @@ export function summarize(arch, now) {
       if (n >= 22) h24 = r1(s);
     }
     const h1 = lastHourly(arch, id, 'prec', iLast);
-    const row = [id, m.name, m.lat, m.lon, h1, h24, rainSince(arch, id, today7 - 7 * DAY), rainSince(arch, id, today7 - 30 * DAY), rainSince(arch, id, hydroStart(now)), lastHourly(arch, id, 'ta', iLast)];
+    const since = (from) => rainSince(arch, id, from, P.daysOnly);
+    const row = [id, m.name, m.lat, m.lon, h1, h24, since((P.daysOnly ? P.end : today7) - 7 * DAY), since((P.daysOnly ? P.end : today7) - 30 * DAY), since(hydroStart(Math.min(now, P.end))), lastHourly(arch, id, 'ta', iLast)];
     if (row.slice(4, 9).some((v) => v !== null)) stations.push(row);
   }
-  return { until: new Date(end).toISOString(), stations };
+  return { until: new Date(end).toISOString(), periodsUntil: new Date(P.end).toISOString(), stations };
 }
 
 /** Ficha de una estación: datos fijos, resumen y series (solo las variables que tiene). */

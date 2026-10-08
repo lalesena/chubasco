@@ -182,6 +182,13 @@
     const surfaceOn = () => st.open && st.color === 'rain' && st.rainView === 'surface' && !!st.surface;
     const gaugeValue = (g) => (GAUGE_COL[st.period] ? g[GAUGE_COL[st.period]] : null);
     const gaugeRows = () => (st.pluvio && st.pluvio.stations) || [];
+    // Si los periodos de varios días terminan antes de la última hora (faltan horas
+    // entre el último día publicado por AEMET y las guardadas), hasta qué día llegan.
+    const gaugeLag = () => {
+      const p = st.pluvio;
+      if (!p || !p.periodsUntil || !GAUGE_COL[st.period] || st.period === 'h24') return null;
+      return Date.parse(p.until) - Date.parse(p.periodsUntil) > 3 * 3600000 ? dateText(new Date(Date.parse(p.periodsUntil) - 8 * 3600000).toISOString().slice(0, 10)) : null;
+    };
 
     function buildGauges() {
       st.gaugeLayer.clearLayers();
@@ -262,6 +269,8 @@
       html += '</div><div class="agua-legend-scale">';
       steps.forEach((v) => { html += `<span>${fmt(v)}</span>`; });
       html += `<span class="unit">${unit}</span></div>`;
+      const lag = st.color === 'rain' && gaugeLag();
+      if (lag) html += `<div class="agua-legend-note">${esc(t('agua.legendLag', { date: lag }))}</div>`;
       dom.legend.innerHTML = html;
     }
 
@@ -389,6 +398,8 @@
       let html = `<h3>${esc(t('agua.gauges'))}</h3>
         <p class="agua-deltas">${esc(raining ? t('agua.gaugesNow', { n: raining, total: rows.length }) : t('agua.gaugesDry', { total: rows.length }))}</p>`;
       // Hasta tener datos del periodo, la última hora.
+      const lag = gaugeLag();
+      if (lag && withValue.length) html += `<p class="hint">${esc(t('agua.gaugesLag', { period: t('agua.p.' + st.period), date: lag }))}</p>`;
       let list = withValue, key = col, title = t('agua.gaugesTop', { period: t('agua.p.' + st.period) });
       if (!list.length) { list = rows; key = 4; title = t('agua.gaugesTop', { period: t('agua.gaugesLastHour').toLowerCase() }); html += `<p class="hint">${esc(t('agua.gaugesWaiting', { period: t('agua.p.' + st.period) }))}</p>`; }
       else if (withValue.length < rows.length * 0.8) html += `<p class="hint">${esc(t('agua.gaugesSome', { n: withValue.length, total: rows.length }))}</p>`;
@@ -771,6 +782,8 @@
       if (row) {
         const cells = [['agua.gaugesLastHour', row[4]], ['agua.p.h24', row[5]], ['agua.p.d7', row[6]], ['agua.p.d30', row[7]], ['agua.p.year', row[8]]];
         html += `<dl class="agua-rain five">${cells.map(([k, v]) => `<div><dt>${esc(t(k))}</dt><dd>${esc(rain(v))}</dd></div>`).join('')}</dl>`;
+        const p = st.pluvio;
+        if (p && p.periodsUntil && Date.parse(p.until) - Date.parse(p.periodsUntil) > 3 * 3600000) html += `<p class="hint">${esc(t('agua.gaugeLag', { date: dateText(new Date(Date.parse(p.periodsUntil) - 8 * 3600000).toISOString().slice(0, 10)) }))}</p>`;
       }
       if (!G) return html + `<p class="hint">${esc(e && e.loading ? t('agua.loading') : t('agua.gaugeError'))}</p>`;
       // Última observación: todo lo que mide la estación.
