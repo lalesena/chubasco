@@ -14,7 +14,7 @@
   const EM = () => window.RA_EMBALSES || null;
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const SPAIN = [[35.9, -9.4], [43.9, 4.4]];
+  const SPAIN = [[35.2, -9.4], [43.9, 4.4]]; // con Ceuta y Melilla
   const CANARIAS = [[27.5, -18.5], [29.45, -13.2]];
   const ZONES = { peninsula: SPAIN, canarias: CANARIAS };
   const PERIODS = ['h24', 'd7', 'd30', 'year'];
