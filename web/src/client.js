@@ -132,6 +132,11 @@
     radarTile: (q) => call('radarTile', q),
     // Lo publica la propia web cada hora (scripts/agua/datos.mjs).
     agua: (file = 'agua.json') => fetch(`agua/${file}`, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+    // También cada hora (scripts/viento/datos.mjs); las horas de una pasada no cambian nunca.
+    viento: (file = 'index.json') => fetch(`viento/${file}`, { cache: file === 'index.json' ? 'no-cache' : 'force-cache' }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return file.endsWith('.json') ? r.json() : r.arrayBuffer().then((b) => new Uint8Array(b));
+    }),
     checkNow: () => call('checkNow'),
     async testAlert(id) {
       if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();

@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('chubasco', {
   lightningView: (q) => ipcRenderer.invoke('lightning:view', q),
   radarTile: (q) => ipcRenderer.invoke('radar:tile', q),
   agua: (file) => ipcRenderer.invoke('agua:get', file),
+  viento: (file) => ipcRenderer.invoke('viento:get', file),
   miniResize: (h) => ipcRenderer.invoke('mini:resize', h),
   miniHide: () => ipcRenderer.invoke('mini:hide'),
   showMain: (id) => ipcRenderer.invoke('app:showMain', id),

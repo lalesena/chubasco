@@ -22,6 +22,7 @@ App de escritorio para **macOS y Windows** que vigila el radar de lluvia en tus 
 | Widget | **Widget de escritorio** (Mac y Windows) en tres tamaños, que se queda donde lo pongas, y **widget para insertar en cualquier web** con un `<iframe>` |
 | Web | **Versión web** con la misma interfaz y el mismo análisis, que funciona también en el móvil |
 | Agua en España | El botón de la gota muestra la **reserva de los embalses por cuenca hidrográfica** (con la semana anterior, hace un año, la media de 10 años y cada embalse) y la **lluvia caída por cuenca** en 24 h, 7 y 30 días y desde el 1 de octubre, estimada con el radar (en **Canarias**, que el radar no cubre, es la media de los pluviómetros de AEMET de cada isla). Incluye Baleares, Canarias, Ceuta y Melilla (estas, sin datos de embalses) y un botón «Península / Canarias» para saltar entre las dos vistas. El mapa colorea las cuencas por reserva o por lluvia y marca cada embalse; su **ficha** tiene el último año frente a la media y los extremos, esta semana en cada año desde 1988, la evolución mensual desde 1988 y los datos de la presa. Con buscador. En modo lluvia, los **pluviómetros de AEMET**: lo medido en la última hora, 24 h, 7 y 30 días y desde el 1 de octubre, una **superficie interpolada** entre ellos y la **ficha de cada estación**: lo medido (última observación, gráficas hora a hora de 10 días y diarias de lluvia, temperatura, humedad, viento, presión, sol…), cómo va el mes y el año hidrológico frente a **lo normal** (con la clase del último mes: muy seco… muy húmedo), la **historia mensual** de la estación (año a año desde que hay datos, hasta 1920, y mes a mes, siempre con las normales 1991-2020 de referencia), el **climograma**, los **récords** (los oficiales de AEMET o, si no los hay, los calculados con el histórico), la tabla de normales y la descarga en CSV de horas, días y meses |
+| Viento | El botón del viento muestra el **viento del modelo GFS** al estilo de Windy: **partículas animadas** que siguen el viento sobre un fondo coloreado por la velocidad (o por las **rachas**), hora a hora durante unas 45 h, con su línea de tiempo. En el panel, el viento, la dirección, las rachas y la escala Beaufort en tu ubicación o en **cualquier punto que pinches**, con la gráfica de las próximas horas (un clic en ella lleva el mapa a esa hora) y la racha más fuerte prevista. Cubre Europa y Canarias |
 | Otros | Historial de avisos, eco más cercano y flecha de movimiento en el mapa, mm/h o in/h, km o mi, español e inglés, atajos de teclado, sin cuentas ni anuncios |
 
 Hay una limitación honesta. El radar mide cuánta agua hay, no de qué tipo: no distingue la nieve, el granizo ni la lluvia helada (el aviso de tormenta fuerte es una señal, no un detector de granizo; la nieve solo aparece en la previsión del modelo). Además, OPERA solo cubre Europa, y no incluye Italia: fuera de su cobertura no hay radar y la app lo dice («Sin radar en esta zona»). Ahí conviene activar «El modelo prevea lluvia en la próxima hora».
@@ -128,6 +129,8 @@ El plan gratuito de Workers admite 100 000 peticiones al día. Un visitante con 
    - **Presas:** la ubicación, el río y los datos de cada presa salen del Inventario de Presas y Embalses de MITECO (`scripts/agua/embalses.mjs`, que genera `src/shared/embalses.js`). El boletín no tiene identificadores, así que se casa por nombre, cuenca y capacidad, con una tabla de equivalencias para los nombres que no coinciden.
    - **Cuencas:** las demarcaciones hidrográficas de la península, Baleares, Canarias (una por isla), Ceuta y Melilla, recortadas a tierra firme (`scripts/agua/cuencas.mjs`, que genera `src/shared/cuencas.js`). Las cuencas internas del País Vasco van con el Cantábrico Oriental, que es su demarcación.
 
+7. **Viento:** en la misma tarea horaria, `scripts/viento/datos.mjs` pide a NOMADS (NOAA) el viento a 10 m y la racha de GFS en una rejilla de 0,25° sobre Europa, de +0 a +54 h, con el filtro que recorta la zona y las variables (unos 200 kB por hora de previsión, en GRIB2 con empaquetado simple que lee `scripts/viento/grib2.mjs`). Cada hora se publica como `viento/<pasada>/fNNN.gz`: u, v y racha en pasos de 0,5 m/s, en diferencias por filas y comprimidos (unos 60 kB; formato en `src/shared/windgrid.js`), más `viento/index.json`. GFS sale cuatro veces al día; si la pasada no ha cambiado, se copian los ficheros ya publicados en vez de volver a pedirlos. La app y la web descargan primero la hora que se ve y después las demás, para la animación y la gráfica; las partículas y el color se calculan en la pantalla de cada uno.
+
    GitHub desactiva las tareas programadas de un repositorio público tras 60 días sin cambios. Si deja de actualizarse, basta con reactivarla en *Actions → Web (GitHub Pages)*.
 
 ### Precisión
@@ -159,11 +162,12 @@ src/main/      proceso principal: ventana, bandeja, avisos, vigilancia
   weather.js   Open-Meteo, búsqueda de lugares
   store.js     datos (StoreCore, común con la web) y su guardado en disco
 src/renderer/  interfaz (Leaflet + MapLibre, gráficas, ajustes), mini panel de la barra y widget
-src/shared/    paleta, textos es/en, previsión combinada, frases de estado y lector de PNG (comunes a todo)
+src/shared/    paleta, textos es/en, previsión combinada, frases de estado, lector de PNG y rejilla de viento (comunes a todo)
 web/           versión web: motor en un Web Worker, puente con la interfaz, generador de la web
   build.mjs    genera web/dist a partir de la interfaz de la app
 proxy/         intermediario de Cloudflare para leer OPERA desde la web
 scripts/agua/  datos del agua: cuencas y presas (una vez) y embalses y lluvia (cada hora, en GitHub Actions)
+scripts/viento/ viento de GFS para el modo «Viento» (cada hora, en GitHub Actions)
 test/          pruebas con datos sintéticos
 ```
 
@@ -178,6 +182,7 @@ test/          pruebas con datos sintéticos
 - **Límites de las cuencas:** Agencia Europea de Medio Ambiente, WISE WFD 2022 (CC BY 4.0), recortados con la costa de [Natural Earth](https://www.naturalearthdata.com/) (dominio público).
 - **Lluvia por cuenca:** EUMETNET OPERA, acumulación horaria (CC BY 4.0). Es una estimación del radar y puede diferir de lo que miden los pluviómetros. En Canarias, donde no llega el radar, es la media de los pluviómetros de © AEMET de cada isla.
 - **Rayos:** [EUMETSAT](https://www.eumetsat.int/), Meteosat-12 Lightning Imager (capa «Accumulated Flash Area» de EUMETView). Datos libres bajo CC BY 4.0: «Contains modified EUMETSAT Meteosat data». Llegan con unos 15 min de retraso y cubren Europa, África y Oriente Medio. No se usa Blitzortung, porque sus condiciones prohíben usar sus datos en sistemas de aviso de tormentas.
+- **Viento:** modelo [GFS de NOAA/NCEP](https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast) (0,25°), a través de [NOMADS](https://nomads.ncep.noaa.gov/). Es de dominio público: se puede usar y publicar sin restricciones. Con 25 km de rejilla, el modelo suaviza el relieve: en valles, costas y montañas el viento real puede ser bastante distinto. Por eso el valor del modo «Viento» puede no coincidir con el viento de «Próximas 24 horas», que da Open-Meteo con modelos de más resolución.
 - **Avisos en el móvil (opcional):** [ntfy.sh](https://ntfy.sh/). Los avisos pasan por su servidor público con un tema aleatorio; quien conozca el nombre del tema puede leerlos.
 - **Ubicación aproximada por IP:** ipwho.is. Solo se usa si pulsas el botón, o si «Aquí» no consigue la ubicación del sistema.
 - **Mapas:** [OpenFreeMap](https://openfreemap.org/) (estilos vectoriales gris claro, oscuro y callejero), © OpenMapTiles, datos © OpenStreetMap. Gratis, sin clave y con uso permitido. CARTO y Esri exigen cuenta o clave; por eso tampoco hay vista de satélite.
@@ -188,7 +193,7 @@ Tus ubicaciones, ajustes, datos de precisión (`verify.json`, `verify-log.jsonl`
 - **macOS:** `~/Library/Application Support/Chubasco/chubasco.json`
 - **Windows:** `%APPDATA%\Chubasco\chubasco.json`
 
-Para un uso comercial: OPERA y EUMETSAT lo permiten (CC BY 4.0), pero Open-Meteo exige un plan de pago.
+Para un uso comercial: OPERA y EUMETSAT lo permiten (CC BY 4.0) y GFS es de dominio público, pero Open-Meteo exige un plan de pago.
 
 ## Licencia y autoría
 

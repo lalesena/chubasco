@@ -22,6 +22,7 @@
   const darkMQ = window.matchMedia('(prefers-color-scheme: dark)');
   let mapApi = null;
   let aguaApi = null;
+  let vientoApi = null;
 
   // ------------------------------------------------------------------
   // Utilidades
@@ -42,6 +43,7 @@
     applyI18n();
     if (mapApi) { mapApi.setT(S.t); mapApi.renderLegend(S.settings); }
     if (aguaApi) aguaApi.refresh();
+    if (vientoApi) vientoApi.refresh();
   }
 
   function baseKey() {
@@ -238,6 +240,7 @@
     renderHistory();
     renderBanner();
     if (!$('loc-popover').hidden) renderLocList();
+    if (vientoApi) vientoApi.refresh();
   }
 
   // ------------------------------------------------------------------
@@ -665,9 +668,36 @@
     });
     $('agua-button').addEventListener('click', () => setAgua(!aguaApi.isOpen()));
     $('agua-back').addEventListener('click', () => setAgua(false));
+
+    // Viento: partículas y previsión del modelo sobre el mapa.
+    vientoApi = window.RA_VIENTO.create({
+      map: mapApi.map, api,
+      dom: {
+        panel: $('viento-panel'),
+        tl: { root: $('viento-timeline'), prev: $('vt-prev'), play: $('vt-play'), next: $('vt-next'), time: $('vt-time'), rel: $('vt-rel'), loading: $('vt-loading'), track: $('vt-track'), legend: $('vt-legend') }
+      },
+      getT: () => S.t, getUnits: () => S.settings.units, getPlace: active,
+      setAttribution: (html) => mapApi.setExtraAttribution(html)
+    });
+    $('viento-button').addEventListener('click', () => setViento(!vientoApi.isOpen()));
+    $('viento-back').addEventListener('click', () => setViento(false));
+  }
+
+  function setViento(on) {
+    if (on && aguaApi.isOpen()) setAgua(false);
+    if (on) { mapApi.pause(); vientoApi.open(); } else vientoApi.close();
+    $('app').classList.toggle('viento-mode', on);
+    $('side-scroll').hidden = on;
+    $('viento-panel').hidden = !on;
+    $('viento-title').hidden = !on;
+    $('loc-button').hidden = on;
+    $('viento-timeline').hidden = !on;
+    $('viento-button').setAttribute('aria-pressed', String(on));
+    if (on) $('viento-panel').scrollTop = 0;
   }
 
   function setAgua(on) {
+    if (on && vientoApi.isOpen()) setViento(false);
     if (on) aguaApi.open(); else aguaApi.close();
     $('app').classList.toggle('agua-mode', on);
     $('side-scroll').hidden = on;
@@ -689,10 +719,12 @@
       if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); fillSettings(); $('settings-dialog').showModal(); return; }
       if (e.key === 'Escape') { closePopover(); $('ctx-menu').hidden = true; $('layers-panel').hidden = true; }
       if (typing || !mapApi) return;
-      if (e.key === ' ') { e.preventDefault(); mapApi.toggle(); }
-      else if (e.key === 'ArrowLeft' && !e.target.closest('#map')) { mapApi.pause(); mapApi.step(-1); }
-      else if (e.key === 'ArrowRight' && !e.target.closest('#map')) { mapApi.pause(); mapApi.step(1); }
-      else if (e.key === 'End') { mapApi.pause(); mapApi.goLatest(); }
+      // En el modo viento, las mismas teclas mueven su línea de tiempo.
+      const tl = vientoApi && vientoApi.isOpen() ? vientoApi : mapApi;
+      if (e.key === ' ') { e.preventDefault(); tl.toggle(); }
+      else if (e.key === 'ArrowLeft' && !e.target.closest('#map')) { tl.pause(); tl.step(-1); }
+      else if (e.key === 'ArrowRight' && !e.target.closest('#map')) { tl.pause(); tl.step(1); }
+      else if (e.key === 'End') { tl.pause(); tl.goLatest(); }
     });
     // Soltar archivos sobre la ventana no debe navegar fuera de la app.
     for (const ev of ['dragover', 'drop']) document.addEventListener(ev, (e) => e.preventDefault());

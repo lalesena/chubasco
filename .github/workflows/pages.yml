@@ -1,7 +1,7 @@
 name: Web (GitHub Pages)
 
 # Publica la versión web (web/dist) en GitHub Pages con cada cambio en main
-# y cada hora, con los datos del agua al día (scripts/agua/datos.mjs).
+# y cada hora, con los datos del agua y del viento al día (scripts/agua y scripts/viento).
 # Hay que activarlo una vez: Settings → Pages → Source: "GitHub Actions".
 on:
   workflow_dispatch:
@@ -44,6 +44,13 @@ jobs:
         run: |
           SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
           node --max-old-space-size=6144 scripts/agua/datos.mjs web/dist/agua "$SITE/agua"
+      # Viento (GFS de NOAA, hora a hora, para el modo «Viento»). Si la pasada
+      # no ha cambiado, o NOAA no responde, se copia la ya publicada.
+      - name: Datos del viento
+        continue-on-error: true
+        run: |
+          SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          node scripts/viento/datos.mjs web/dist/viento "$SITE/viento"
       - name: Conservar los datos anteriores si no se generaron
         if: hashFiles('web/dist/agua/agua.json') == ''
         run: |

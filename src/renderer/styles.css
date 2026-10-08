@@ -840,3 +840,55 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-legend-scale { display: flex; padding-left: 21px; }
 .agua-legend-scale span { width: 30px; font-variant-numeric: tabular-nums; }
 .agua-legend-scale .unit { width: auto; margin-left: -4px; }
+
+/* Viento: partículas y fondo por velocidad sobre el mapa, su línea de tiempo y el panel */
+#viento-button[aria-pressed='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.viento-mode .leaflet-radar-pane, .viento-mode .leaflet-lightning-pane, .viento-mode .leaflet-overlay-pane,
+.viento-mode #timeline, .viento-mode .map-tools .tool-btn#layers-button,
+.viento-mode .echo-marker, .viento-mode .motion-label { display: none; }
+.viento-mode #map { cursor: crosshair; }
+.viento-particles { position: absolute; left: 0; top: 0; pointer-events: none; }
+.vt-track { gap: 1px; }
+.vt-track .tl-tick { min-width: 3px; }
+.vt-track .tl-tick.day { margin-left: 5px; }
+.vt-legend { width: 200px; font-size: 10px; color: var(--muted); }
+.vt-legend-title { margin-bottom: 3px; font-size: 10.5px; }
+.vt-legend-bar { height: 8px; border-radius: 2px; }
+.vt-legend-scale { position: relative; height: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.vt-legend-scale span { position: absolute; transform: translateX(-50%); color: var(--faint); font-size: 9.5px; }
+.vt-legend-scale span:first-child { transform: none; }
+.vt-pick { position: relative; pointer-events: none; }
+.vt-pick-dot { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px var(--ink), 0 1px 4px rgba(0, 0, 0, 0.4); }
+.vt-pick:not(.picked) .vt-pick-dot { display: none; } /* en la ubicación activa ya está su marcador */
+.vt-pick-label {
+  position: absolute; left: 12px; top: -12px; display: flex; align-items: center; gap: 3px; white-space: nowrap;
+  padding: 2px 7px 2px 4px; border-radius: 12px; background: var(--surface); color: var(--ink);
+  font: 680 12.5px var(--font); font-stretch: 90%; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3);
+}
+.vt-pick-label .vt-arrow { width: 14px; height: 14px; }
+.vt-arrow { display: inline-block; flex: none; }
+.vt-now { padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.vt-place { display: flex; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 640; }
+.vt-place small { font-size: 11.5px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.vt-time { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.vt-big { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 46px; font-weight: 700; font-stretch: 78%; line-height: 1; letter-spacing: -0.01em; }
+.vt-big .vt-arrow { width: 34px; height: 34px; color: var(--accent); }
+.vt-big small { align-self: flex-end; margin-bottom: 4px; font-size: 18px; font-weight: 600; color: var(--muted); }
+.vt-line { margin: 8px 0 0; font-size: 14px; }
+.vt-bft { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.vt-chart svg { cursor: pointer; }
+.chart .vt-speed { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; }
+.chart .vt-speed-area { fill: var(--accent); opacity: 0.1; }
+.chart .vt-gust { fill: none; stroke: var(--amber-ink); stroke-width: 1.3; stroke-dasharray: 4 3; stroke-linejoin: round; }
+.chart .vt-dir { fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.chart .grid.day { stroke-dasharray: 2 3; }
+.chart .axis.strong { fill: var(--muted); font-weight: 600; }
+.chart .vt-hover { stroke: var(--accent); stroke-width: 1; opacity: 0.6; }
+.key-wind::before { height: 0; border-top: 2px solid var(--accent); vertical-align: 3px; }
+.key-gust::before { height: 0; border-top: 2px dashed var(--amber-ink); vertical-align: 3px; }
+.vt-readout { margin: 4px 0 0; min-height: 1.4em; font-size: 12px; font-variant-numeric: tabular-nums; }
+.vt-max { margin: 8px 0 0; font-size: 13px; }
+.vt-pick-hint { margin: 10px 0 0; }
+.vt-controls { display: grid; gap: 4px; }
+.vt-controls .switch-row { margin: 8px 0 0; font-weight: 400; font-size: 13.5px; }
+@media (max-width: 1040px) { .vt-legend { display: none; } }
