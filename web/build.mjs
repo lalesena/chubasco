@@ -129,5 +129,18 @@ await fs.cp(path.join(ROOT, 'web', 'static'), OUT, { recursive: true });
 await copy(path.join(ROOT, 'assets/icon-512.png'), 'icon-512.png');
 await write('.nojekyll', '');
 
+// 5. Cada script y hoja de estilo con la huella de su contenido (?v=…): tras
+//    publicar, el navegador no mezcla la página nueva con ficheros de su caché.
+const { createHash } = await import('node:crypto');
+for (const page of ['index.html', 'embed.html']) {
+  const html = await fs.readFile(path.join(OUT, page), 'utf8');
+  let stamped = html;
+  for (const [, attr, ref] of html.matchAll(/\b(src|href)="([\w./-]+\.(?:js|css))"/g)) {
+    const hash = createHash('sha1').update(await fs.readFile(path.join(OUT, ref))).digest('hex').slice(0, 10);
+    stamped = stamped.replace(`${attr}="${ref}"`, `${attr}="${ref}?v=${hash}"`);
+  }
+  await write(page, stamped);
+}
+
 const files = await fs.readdir(OUT, { recursive: true });
 console.log(`web/dist: ${files.length} ficheros`);

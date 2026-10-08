@@ -189,15 +189,18 @@
       }
     }
 
-    // En «Lluvia», los pluviómetros con dato para el periodo; en «Reserva», los embalses.
+    // En «Lluvia», los pluviómetros; en «Reserva», los embalses.
     function restyleGauges() {
       const show = st.open && st.color === 'rain';
       if (show) { map.removeLayer(st.pointLayer); st.gaugeLayer.addTo(map); } else { map.removeLayer(st.gaugeLayer); if (st.open) st.pointLayer.addTo(map); }
       const steps = RAIN_STEPS[st.period];
       for (const { m, g } of st.gauges.values()) {
+        if (!show) { st.gaugeLayer.removeLayer(m); continue; }
+        // Sin dato del periodo (p. ej. aún no hay 7 días guardados): punto gris pequeño.
         const v = gaugeValue(g);
-        if (!show || v === null || v === undefined) { st.gaugeLayer.removeLayer(m); continue; }
-        m.setStyle({ fillColor: RAIN_COLORS[classOf(v, steps)] });
+        const none = v === null || v === undefined;
+        m.setStyle({ fillColor: none ? NO_DATA : RAIN_COLORS[classOf(v, steps)], fillOpacity: none ? 0.7 : 0.95 });
+        m.setRadius(none ? 3 : 4.5);
         st.gaugeLayer.addLayer(m);
       }
     }
