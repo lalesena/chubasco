@@ -277,3 +277,92 @@ export function reservoirHistory(rows, list, log = () => {}) {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Pluviómetros (AEMET, observación convencional): `prec` es la lluvia de los
+// 60 minutos anteriores a `fint`. El estado guarda la lista de estaciones
+// (ids, y nombre y posición en meta), la lluvia de cada hora de las últimas
+// GAUGE_HOURS horas (un valor por estación, en el orden de ids) y la de cada
+// día UTC completo (los 32 últimos).
+
+const GAUGE_HOURS = 50, GAUGE_DAYS = 32, HOUR_MS = 3600000;
+const gaugeHourKey = (t) => new Date(t).toISOString().slice(0, 13); // '2026-10-08T09' = hora que termina a las 09:00 UTC
+const isoTime = (s) => Date.parse(String(s).replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
+
+// 'FIGUERES  ELS ASPRES' → 'Figueres, Els Aspres'; 'D?HOSTOLES' (apóstrofo perdido) → "d'Hostoles".
+const SMALL = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'i', 'e', 'en', 'a', 'al', 'da', 'do', 'das', 'dos']);
+export function gaugeName(s) {
+  return String(s).trim().replace(/(\p{L})\?(\p{L})/gu, "$1'$2").split(/\s{2,}/).map((part) => part.toLowerCase().split(/(\s+|-|\/|\()/).map((w, i) => {
+    if (!/\p{L}/u.test(w)) return w;
+    const ap = /^([dl])'(.+)$/.exec(w);
+    if (ap) return `${i === 0 ? ap[1].toUpperCase() : ap[1]}'${ap[2][0].toUpperCase()}${ap[2].slice(1)}`;
+    if (i > 0 && SMALL.has(w)) return w;
+    return w[0].toUpperCase() + w.slice(1);
+  }).join('')).join(', ');
+}
+
+/** Añade las observaciones (filas de AEMET) al estado y rehace los días que aún se pueden completar. */
+export function gaugeIngest(prev, rows, now) {
+  const st = { ids: [...((prev && prev.ids) || [])], meta: { ...((prev && prev.meta) || {}) }, hours: { ...((prev && prev.hours) || {}) }, days: { ...((prev && prev.days) || {}) } };
+  const index = new Map(st.ids.map((id, i) => [id, i]));
+  for (const r of rows) {
+    if (!r || !r.idema || !Number.isFinite(r.lat) || !Number.isFinite(r.lon)) continue;
+    let i = index.get(r.idema);
+    if (i === undefined) { i = st.ids.length; st.ids.push(r.idema); index.set(r.idema, i); }
+    st.meta[r.idema] = [gaugeName(r.ubi || r.idema), Math.round(r.lat * 1e4) / 1e4, Math.round(r.lon * 1e4) / 1e4];
+    const t = isoTime(r.fint);
+    if (typeof r.prec !== 'number' || !(r.prec >= 0) || r.prec > 250 || !Number.isFinite(t) || t % HOUR_MS) continue;
+    const arr = st.hours[gaugeHourKey(t)] || (st.hours[gaugeHourKey(t)] = []);
+    arr[i] = Math.round(r.prec * 10) / 10;
+  }
+  const oldest = Math.floor(now / HOUR_MS) * HOUR_MS - GAUGE_HOURS * HOUR_MS;
+  for (const k of Object.keys(st.hours)) if (Date.parse(k + ':00:00Z') <= oldest) delete st.hours[k];
+  // Días UTC: la lluvia de las horas que terminan entre las 01:00 y las 24:00.
+  // Se rehacen mientras sus horas sigan guardadas (pueden llegar tarde).
+  const today = Math.floor(now / 86400000) * 86400000;
+  for (let d = today - 86400000; d + HOUR_MS > oldest; d -= 86400000) {
+    const sum = [], n = [];
+    for (let h = 1; h <= 24; h++) {
+      const arr = st.hours[gaugeHourKey(d + h * HOUR_MS)];
+      if (!arr) continue;
+      arr.forEach((v, i) => { if (v !== null && v !== undefined) { sum[i] = (sum[i] || 0) + v; n[i] = (n[i] || 0) + 1; } });
+    }
+    const day = st.ids.map((_, i) => (n[i] >= 22 ? Math.round(sum[i] * 10) / 10 : null));
+    if (day.some((v) => v !== null)) st.days[new Date(d).toISOString().slice(0, 10)] = day;
+  }
+  for (const k of Object.keys(st.days)) if (Date.parse(k) < today - GAUGE_DAYS * 86400000) delete st.days[k];
+  return st;
+}
+
+/** Lo que se publica: {until, stations: [[id, nombre, lat, lon, h1, h24, d7, d30]]}. */
+export function gaugeSummary(st, now) {
+  const keys = Object.keys(st.hours || {}).sort();
+  if (!keys.length) return null;
+  const latest = keys[keys.length - 1];
+  const tLatest = Date.parse(latest + ':00:00Z');
+  const today = Math.floor(now / 86400000) * 86400000;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const at = (k, i) => { const a = st.hours[k]; const v = a ? a[i] : undefined; return v === null || v === undefined ? null : v; };
+  const stations = [];
+  st.ids.forEach((id, i) => {
+    const meta = st.meta[id];
+    if (!meta) return;
+    let h24 = 0, n24 = 0, todaySum = 0;
+    for (let h = 0; h < 24; h++) {
+      const t = tLatest - h * HOUR_MS;
+      const v = at(gaugeHourKey(t), i);
+      if (v === null) continue;
+      h24 += v; n24++;
+      if (t > today) todaySum += v;
+    }
+    const days = (count) => {
+      let mm = todaySum, got = 0;
+      for (let k = 1; k < count; k++) { const a = st.days[new Date(today - k * 86400000).toISOString().slice(0, 10)]; const v = a ? a[i] : null; if (v !== null && v !== undefined) { mm += v; got++; } }
+      return got >= (count - 1) * 0.9 ? r1(mm) : null;
+    };
+    const h1 = at(latest, i) ?? at(gaugeHourKey(tLatest - HOUR_MS), i); // algunas estaciones llegan una hora tarde
+    const row = [id, meta[0], meta[1], meta[2], h1, n24 >= 22 ? r1(h24) : null, days(7), days(30)];
+    if (row[4] !== null || row[5] !== null) stations.push(row);
+  });
+  return { until: new Date(tLatest).toISOString(), stations };
+}

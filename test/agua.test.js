@@ -143,6 +143,37 @@ test('presas: cada embalse del inventario está en su cuenca y en España', () =
   assert.ok(Math.abs(a.lat - 39.73) < 0.02 && Math.abs(a.lon + 6.886) < 0.02, 'Alcántara, en su presa');
 });
 
+test('pluviómetros: horas, días completos, 24 h y nombres', async () => {
+  const { gaugeIngest, gaugeSummary, gaugeName } = await lib();
+  const H = 3600000;
+  const now = Date.UTC(2026, 9, 8, 9, 20);
+  const fint = (t) => new Date(t).toISOString().replace('.000Z', '+0000');
+  const rows = [];
+  // 60 horas: A llueve 1 mm cada hora; B nada; C solo las horas pares.
+  for (let h = 0; h < 60; h++) {
+    const t = Date.UTC(2026, 9, 8, 9) - h * H;
+    rows.push({ idema: 'A', ubi: 'MADRID  RETIRO', lat: 40.41, lon: -3.68, fint: fint(t), prec: 1 });
+    rows.push({ idema: 'B', ubi: 'B', lat: 41, lon: -4, fint: fint(t), prec: 0 });
+    if (h % 2 === 0) rows.push({ idema: 'C', ubi: 'C', lat: 42, lon: -5, fint: fint(t), prec: 0.5 });
+  }
+  rows.push({ idema: 'D', ubi: 'D', lat: 42, lon: -5, fint: fint(Date.UTC(2026, 9, 8, 9)) }); // sin prec
+  const st = gaugeIngest(null, rows, now);
+  assert.ok(Object.keys(st.hours).length <= 50, 'solo las últimas 50 horas');
+  assert.deepEqual(st.days['2026-10-07'].slice(0, 3), [24, 0, null], 'día completo; C no llega a 22 horas');
+  const out = gaugeSummary(st, now);
+  assert.equal(out.until, '2026-10-08T09:00:00.000Z');
+  const by = Object.fromEntries(out.stations.map((x) => [x[0], x]));
+  assert.deepEqual(by.A.slice(1, 6), ['Madrid, Retiro', 40.41, -3.68, 1, 24]);
+  assert.equal(by.B[5], 0);
+  assert.equal(by.C[5], null, 'C tiene 12 de 24 horas');
+  assert.equal(by.A[6], null, 'una semana necesita al menos 6 días');
+  assert.ok(!by.D, 'sin lluvia medida no se publica');
+  // Otra ejecución una hora después conserva lo anterior.
+  const st2 = gaugeIngest(st, [{ idema: 'A', ubi: 'MADRID  RETIRO', lat: 40.41, lon: -3.68, fint: fint(Date.UTC(2026, 9, 8, 10)), prec: 3 }], now + H);
+  assert.equal(gaugeSummary(st2, now + H).stations.find((x) => x[0] === 'A')[5], 26);
+  assert.equal(gaugeName('LES PLANES D?HOSTOLES'), "Les Planes d'Hostoles");
+});
+
 test('el script de datos importa todo lo que usa de lib.mjs', async () => {
   const fs = require('fs');
   const src = fs.readFileSync(path.join(__dirname, '../scripts/agua/datos.mjs'), 'utf8');

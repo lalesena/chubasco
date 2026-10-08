@@ -4,6 +4,7 @@
  *
  *  - agua.json:   lo que leen la app y la web.
  *  - embalses/<cuenca>.json: histórico de cada embalse (la ficha lo pide al abrirse).
+ *  - pluvio.json: lluvia medida en los pluviómetros de AEMET.
  *  - estado.json: lo necesario para la siguiente ejecución (lluvia por horas
  *                 y por días); se recupera de la web publicada.
  *
@@ -13,6 +14,8 @@
  *    de la península); los días que falten, del archivo (HDF5).
  *  - Embalses: MITECO, Boletín Hidrológico semanal (BD-Embalses), que se
  *    descarga solo cuando cambia (los martes).
+ *  - Pluviómetros: AEMET OpenData, observación de las estaciones automáticas
+ *    (últimas 12 horas). Necesita la clave en AEMET_API_KEY (secreto de GitHub).
  *
  * Uso: node scripts/agua/datos.mjs <carpeta de salida> [<URL o carpeta con el estado anterior>]
  */
@@ -22,7 +25,7 @@ import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
 import MDBReader from 'mdb-reader';
 import * as hdf5 from 'jsfive';
-import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory } from './lib.mjs';
+import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs, reservoirHistory, gaugeIngest, gaugeSummary } from './lib.mjs';
 
 const require = createRequire(import.meta.url);
 const TIFF = require('../../src/main/tiff.js');
@@ -242,6 +245,24 @@ async function reservoirs(state) {
 }
 
 // ---------------------------------------------------------------------------
+// Pluviómetros (AEMET OpenData): dos pasos, la respuesta da la URL de los datos.
+
+async function gauges(state, now) {
+  const key = process.env.AEMET_API_KEY;
+  if (!key) { log('pluviómetros: sin AEMET_API_KEY'); return state; }
+  const res = await fetchOk('https://opendata.aemet.es/opendata/api/observacion/convencional/todas', { headers: { api_key: key } });
+  if (!res.ok) throw new Error(`AEMET HTTP ${res.status}`);
+  const env = await res.json();
+  if (env.estado !== 200 || !env.datos) throw new Error(`AEMET ${env.estado} ${env.descripcion || ''}`);
+  const data = await fetchOk(env.datos);
+  if (!data.ok) throw new Error(`AEMET datos HTTP ${data.status}`);
+  const rows = JSON.parse(new TextDecoder('iso-8859-15').decode(await data.arrayBuffer()));
+  const next = gaugeIngest(state, rows, now * 1000);
+  log('pluviómetros:', rows.length, 'observaciones,', next.ids.length, 'estaciones');
+  return next;
+}
+
+// ---------------------------------------------------------------------------
 
 async function readPrevious() {
   if (!PREV) return {};
@@ -259,7 +280,7 @@ async function readPrevious() {
 
 const now = Math.floor(Date.now() / 1000);
 const prev = await readPrevious();
-const state = { version: 2, rain: prev.rain || {}, embalses: prev.embalses || null };
+const state = { version: 2, rain: prev.rain || {}, embalses: prev.embalses || null, pluvio: prev.pluvio || null };
 const masks = buildMasks(CUENCAS.basins);
 log('máscaras', masks.basins.map((b) => `${b.id}:${b.pixels.length}`).join(' '));
 
@@ -276,12 +297,18 @@ try {
   state.embalses = await reservoirs(state);
 } catch (e) { log('embalses:', e.stack || e.message); errors.reservoirs = String((e.cause && e.cause.code) || e.message || e); }
 
+try {
+  state.pluvio = await gauges(state.pluvio, now);
+} catch (e) { log('pluviómetros:', e.stack || e.message); errors.gauges = String((e.cause && e.cause.code) || e.message || e); }
+const pluvio = state.pluvio ? gaugeSummary(state.pluvio, now * 1000) : null;
+
 const agua = {
   updated: new Date(now * 1000).toISOString(),
   sources: {
     rain: 'EUMETNET OPERA (CC BY 4.0), estimación por radar',
     reservoirs: 'MITECO – Boletín Hidrológico semanal',
-    basins: CUENCAS.attribution
+    basins: CUENCAS.attribution,
+    gauges: '© AEMET (información elaborada por la Agencia Estatal de Meteorología)'
   },
   rain: lluvia,
   reservoirs: state.embalses ? state.embalses.out : null,
@@ -290,6 +317,7 @@ const agua = {
 await fs.mkdir(OUT, { recursive: true });
 await fs.writeFile(path.join(OUT, 'agua.json'), JSON.stringify(agua));
 await fs.writeFile(path.join(OUT, 'estado.json'), JSON.stringify(state));
+if (pluvio) await fs.writeFile(path.join(OUT, 'pluvio.json'), JSON.stringify({ source: agua.sources.gauges, ...pluvio }));
 if (state.embalses && state.embalses.hist) {
   await fs.mkdir(path.join(OUT, 'embalses'), { recursive: true });
   for (const [id, h] of Object.entries(state.embalses.hist)) await fs.writeFile(path.join(OUT, 'embalses', `${id}.json`), JSON.stringify(h));

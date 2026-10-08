@@ -1,7 +1,8 @@
 /* Agua en España: reserva de los embalses y lluvia por cuenca hidrográfica.
  * Panel lateral, capa de cuencas y puntos de los embalses en el mapa, y la
- * ficha de cada embalse. Los datos (agua.json y el histórico de cada cuenca,
- * embalses/<id>.json) los publica la web cada hora; aquí solo se muestran.
+ * ficha de cada embalse, y los pluviómetros de AEMET. Los datos (agua.json,
+ * pluvio.json y el histórico de cada cuenca, embalses/<id>.json) los publica
+ * la web cada hora; aquí solo se muestran.
  * La ubicación y los datos de cada presa vienen de shared/embalses.js. */
 (function () {
   'use strict';
@@ -28,10 +29,12 @@
       open: false, data: null, loadedAt: 0, error: null, loading: null,
       color: 'reserve', period: 'd7', selected: null, prevView: null,
       layer: L.layerGroup(), shapes: new Map(),
-      res: null, hist: new Map(), points: new Map(), pointLayer: L.layerGroup(), query: ''
+      res: null, hist: new Map(), points: new Map(), pointLayer: L.layerGroup(), query: '',
+      pluvio: null, gauges: new Map(), gaugeLayer: L.layerGroup()
     };
     map.createPane('agua').style.zIndex = 330;
     map.createPane('aguapoints').style.zIndex = 335;
+    map.createPane('aguagauges').style.zIndex = 336;
     // Al acercarse vuelven los nombres del mapa base (ver styles.css).
     const onZoom = () => {
       if (!st.open) return;
@@ -63,7 +66,8 @@
       `${esc(t('agua.attrReservoirs'))} <a href="https://www.miteco.gob.es/es/agua/temas/evaluacion-de-los-recursos-hidricos/boletin-hidrologico.html">MITECO</a>`,
       `${esc(t('agua.attrRain'))} <a href="https://www.eumetnet.eu/">EUMETNET</a> OPERA (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, ${esc(t('map.processed'))})`,
       `${esc(t('agua.attrBasins'))} <a href="https://www.eea.europa.eu/">AEMA</a> (CC BY 4.0)`,
-      `${esc(t('agua.attrDams'))} <a href="https://www.miteco.gob.es/es/cartografia-y-sig/ide/descargas/agua/inventario-presas-embalses.html">MITECO</a>`
+      // Nota legal de AEMET: citarla como fuente («© AEMET»).
+      ...(st.pluvio ? [`${esc(t('agua.attrGauges'))} © <a href="https://www.aemet.es/">AEMET</a>`] : [])
     ].join(' · ');
 
     // ----------------------------------------------------------------
@@ -72,8 +76,11 @@
     async function load(force) {
       if (st.loading) return st.loading;
       if (!force && st.data && Date.now() - st.loadedAt < 10 * 60000) return st.data;
-      st.loading = api.agua().then((d) => {
+      // Los pluviómetros son aparte: si fallan, el resto sigue.
+      const pluvio = api.agua('pluvio.json').then((p) => { st.pluvio = p; }).catch(() => {});
+      st.loading = Promise.all([api.agua(), pluvio]).then(([d]) => {
         st.data = d; st.loadedAt = Date.now(); st.error = null;
+        setAttribution(attribution());
         return d;
       }).catch((e) => { st.error = e.message || String(e); return st.data; })
         .finally(() => { st.loading = null; });
@@ -164,7 +171,39 @@
       }
     }
 
+    // Pluviómetros: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días].
+    const GAUGE_COL = { h24: 5, d7: 6, d30: 7 };
+    const gaugeValue = (g) => (GAUGE_COL[st.period] ? g[GAUGE_COL[st.period]] : null);
+    const gaugeRows = () => (st.pluvio && st.pluvio.stations) || [];
+
+    function buildGauges() {
+      st.gaugeLayer.clearLayers();
+      st.gauges.clear();
+      for (const g of gaugeRows()) {
+        const m = L.circleMarker([g[2], g[3]], { pane: 'aguagauges', radius: 4.5, weight: 1, color: '#14212b', opacity: 0.55, fillOpacity: 0.95, bubblingMouseEvents: false });
+        m.bindTooltip(() => {
+          const v = gaugeValue(g);
+          return `<strong>${esc(g[1])}</strong><br>${v !== null ? `${esc(t('agua.p.' + st.period))}: ${esc(rain(v))} · ` : ''}${esc(t('agua.gaugesLastHour'))}: ${esc(rain(g[4]))}`;
+        }, { direction: 'top', className: 'agua-tip', offset: [0, -4] });
+        st.gauges.set(g[0], { m, g });
+      }
+    }
+
+    // En «Lluvia», los pluviómetros con dato para el periodo; en «Reserva», los embalses.
+    function restyleGauges() {
+      const show = st.open && st.color === 'rain';
+      if (show) { map.removeLayer(st.pointLayer); st.gaugeLayer.addTo(map); } else { map.removeLayer(st.gaugeLayer); if (st.open) st.pointLayer.addTo(map); }
+      const steps = RAIN_STEPS[st.period];
+      for (const { m, g } of st.gauges.values()) {
+        const v = gaugeValue(g);
+        if (!show || v === null || v === undefined) { st.gaugeLayer.removeLayer(m); continue; }
+        m.setStyle({ fillColor: RAIN_COLORS[classOf(v, steps)] });
+        st.gaugeLayer.addLayer(m);
+      }
+    }
+
     function restylePoints() {
+      restyleGauges();
       const sel = st.res ? resKey(st.res.id, st.res.name) : null;
       const reserve = st.color === 'reserve';
       for (const [k, { m, x }] of st.points) {
@@ -303,6 +342,26 @@
         ctx.fillStyle = i === values.length - 1 ? ink : accent;
         ctx.fillRect(pad.l + i * bw + 1, h - pad.b - bh, Math.max(1, bw - 2), bh);
       });
+    }
+
+    function renderGauges() {
+      const rows = gaugeRows();
+      if (!rows.length) return '';
+      const col = GAUGE_COL[st.period];
+      const withValue = col ? rows.filter((g) => g[col] !== null) : [];
+      const raining = rows.filter((g) => g[4] > 0).length;
+      let html = `<h3>${esc(t('agua.gauges'))}</h3>
+        <p class="agua-deltas">${esc(raining ? t('agua.gaugesNow', { n: raining, total: rows.length }) : t('agua.gaugesDry', { total: rows.length }))}</p>`;
+      // Hasta tener datos del periodo, la última hora.
+      let list = withValue, key = col, title = t('agua.gaugesTop', { period: t('agua.p.' + st.period) });
+      if (!col) html += `<p class="hint">${esc(t('agua.gaugesYear'))}</p>`;
+      if (!list.length) { list = rows; key = 4; title = t('agua.gaugesTop', { period: t('agua.gaugesLastHour').toLowerCase() }); if (col) html += `<p class="hint">${esc(t('agua.gaugesWaiting', { period: t('agua.p.' + st.period) }))}</p>`; }
+      const top = list.filter((g) => g[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, 8);
+      if (top.length) {
+        html += `<p class="agua-subtitle">${esc(title)}</p><ol class="agua-gauges">${top.map((g) => `<li><button type="button" data-gauge="${esc(g[0])}"><span>${esc(g[1])}</span><span class="val">${esc(rain(g[key]))}</span></button></li>`).join('')}</ol>`;
+      }
+      html += `<p class="hint">${esc(t('agua.gaugesUntil', { time: new Date(st.pluvio.until).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }))}</p>`;
+      return html;
     }
 
     function renderTotal() {
@@ -511,6 +570,7 @@
             ${PERIODS.map((p) => `<button type="button" data-period="${p}" aria-pressed="${st.period === p}">${esc(t('agua.p.' + p))}</button>`).join('')}
           </div>
         </section>
+        ${st.color === 'rain' && gaugeRows().length ? `<section class="agua-pluvio">${renderGauges()}</section>` : ''}
         ${st.selected ? `<section class="agua-detail">${renderDetail(st.selected)}</section>` : ''}
         <section class="agua-basins">
           <div class="agua-list-head"><span>${esc(t('agua.basins'))}</span><span>${esc(t('agua.colReserve'))}</span><span>${esc(t('agua.colRain', { period: t('agua.p.' + st.period) }))}</span></div>
@@ -550,6 +610,8 @@
       if (period) { st.period = period.dataset.period; if (st.color !== 'rain') st.color = 'rain'; restyleAll(); render(); return; }
       if (e.target.closest('[data-close]')) { select(null); return; }
       if (e.target.closest('[data-res-back]')) { closeRes(); return; }
+      const gb = e.target.closest('[data-gauge]');
+      if (gb) { const x = st.gauges.get(gb.dataset.gauge); if (x) { map.setView(x.m.getLatLng(), Math.max(9, map.getZoom())); x.m.openTooltip(); } return; }
       const rb = e.target.closest('[data-res]');
       if (rb) { openRes(rb.dataset.basin, rb.dataset.res, true); return; }
       const row = e.target.closest('.agua-row');
@@ -611,6 +673,7 @@
       render();
       await load();
       buildPoints();
+      buildGauges();
       restyleAll();
       render();
     }
@@ -621,6 +684,7 @@
       setAttribution(null);
       map.removeLayer(st.layer);
       map.removeLayer(st.pointLayer);
+      map.removeLayer(st.gaugeLayer);
       map.getContainer().classList.remove('agua-near');
       st.res = null;
       for (const s of st.shapes.values()) s.label.remove();
@@ -631,7 +695,7 @@
       open, close,
       isOpen: () => st.open,
       refresh() { if (st.open) { setAttribution(attribution()); restyleAll(); render(); } },
-      reload() { if (st.open) load(true).then(() => { buildPoints(); restyleAll(); render(); }); }
+      reload() { if (st.open) load(true).then(() => { buildPoints(); buildGauges(); restyleAll(); render(); }); }
     };
   }
 

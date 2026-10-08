@@ -727,6 +727,12 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-res-head { display: flex; align-items: center; gap: 2px; margin-left: -8px; font-size: 13px; color: var(--muted); }
 .agua-res-name { margin-top: 2px; font-size: 20px !important; }
 .agua-rank { margin: 8px 0 0; padding: 6px 8px; border-radius: var(--radius-s); background: color-mix(in srgb, var(--accent) 9%, transparent); font-size: 13px; }
+.agua-subtitle { margin: 10px 0 2px; font-size: 12px; color: var(--muted); }
+.agua-gauges { list-style: none; margin: 0; padding: 0; }
+.agua-gauges button { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 0; background: none; padding: 4px 6px; margin: 0 -6px; box-sizing: content-box; border-radius: 4px; text-align: left; font-size: 13px; color: var(--ink); }
+.agua-gauges button:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.agua-gauges span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agua-gauges .val { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .agua-dam { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 6px 0 0; font-size: 13px; }
 .agua-dam div { display: contents; }
 .agua-dam dt { color: var(--muted); }
@@ -781,7 +787,7 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-sources p { margin: 0 0 6px; }
 .leaflet-tooltip.agua-label { background: color-mix(in srgb, var(--surface) 82%, transparent); border: 0; border-radius: 4px; box-shadow: none; padding: 1px 5px; font: 680 12.5px var(--font); font-stretch: 90%; color: var(--ink); white-space: nowrap; }
 .leaflet-tooltip.agua-label::before { display: none; }
-.agua-legend { position: absolute; left: 12px; bottom: 26px; z-index: 900; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 8px 10px; font-size: 11px; color: var(--muted); }
+.agua-legend { position: absolute; left: 12px; bottom: 40px; z-index: 900; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 8px 10px; font-size: 11px; color: var(--muted); }
 .agua-legend-title { color: var(--ink); font-weight: 620; margin-bottom: 4px; }
 .agua-legend-bar { display: flex; }
 .agua-legend-bar span { width: 30px; height: 9px; }

@@ -37,6 +37,8 @@ jobs:
       # publicado en la hora anterior; si algo falla, se conservan esos datos.
       - name: Datos del agua
         continue-on-error: true
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
         run: |
           SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
           node --max-old-space-size=6144 scripts/agua/datos.mjs web/dist/agua "$SITE/agua"
@@ -47,6 +49,7 @@ jobs:
           mkdir -p web/dist/agua
           curl -fsS -o web/dist/agua/agua.json "$SITE/agua/agua.json" || true
           curl -fsS -o web/dist/agua/estado.json "$SITE/agua/estado.json" || true
+          curl -fsS -o web/dist/agua/pluvio.json "$SITE/agua/pluvio.json" || true
           mkdir -p web/dist/agua/embalses
           for id in $(node -p "require('./src/shared/cuencas.js').basins.map((b) => b.id).join(' ')"); do
             curl -fsS -o "web/dist/agua/embalses/$id.json" "$SITE/agua/embalses/$id.json" || true

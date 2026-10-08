@@ -160,6 +160,17 @@ function aguaHistDemo(id) {
   return { date: weekDates[52], weekDates, total: { m0: '1988-01', m: Array.from({ length: 12 * 38 + 9 }, (_, k) => Math.round(55 + 20 * Math.sin(k / 9) * Math.cos(k / 60))) }, res };
 }
 
+// Pluviómetros, con la forma de pluvio.json: [id, nombre, lat, lon, 1 h, 24 h, 7 días, 30 días].
+function pluvioDemo() {
+  const stations = [];
+  for (let i = 0; i < 70; i++) {
+    const lat = 36.4 + ((i * 37) % 70) / 10, lon = -8.6 + ((i * 53) % 115) / 10;
+    const wet = Math.max(0, Math.sin(i * 0.7) * 18);
+    stations.push([`D${i}`, `Estación ${i + 1}`, Math.round(lat * 1e4) / 1e4, Math.round(lon * 1e4) / 1e4, i % 5 === 0 ? Math.round(wet / 4) / 2 : 0, Math.round(wet * 10) / 10, Math.round(wet * 25) / 10, null]);
+  }
+  return { source: '© AEMET', until: new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString(), stations };
+}
+
 function json(obj) {
   return new Response(JSON.stringify(obj), { headers: { 'content-type': 'application/json' } });
 }
@@ -200,6 +211,7 @@ function install() {
     const u = new URL(req.url);
     if (u.host === OPERA_HOST) return operaResponse(req, u);
     if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/agua.json')) return json(aguaDemo());
+    if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/pluvio.json')) return json(pluvioDemo());
     const hist = u.host.endsWith('.github.io') && /\/agua\/embalses\/(ES\d{3})\.json$/.exec(u.pathname);
     if (hist) { const h = aguaHistDemo(hist[1]); return h ? json(h) : new Response('', { status: 404 }); }
     if (u.host === 'api.open-meteo.com') return json(forecast());

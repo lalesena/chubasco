@@ -813,10 +813,10 @@ function registerIpc() {
 
   // Agua en España (embalses y lluvia por cuenca): lo calcula y publica la
   // web cada hora (scripts/agua/datos.mjs); aquí solo se lee. `file` es
-  // agua.json o el histórico de embalses de una cuenca (embalses/ES030.json).
+  // agua.json, pluvio.json o el histórico de embalses de una cuenca (embalses/ES030.json).
   const agua = new Map();
   ipcMain.handle('agua:get', async (_e, file = 'agua.json') => {
-    if (!/^(agua|embalses\/ES\d{3})\.json$/.test(file)) throw new Error('Fichero no válido');
+    if (!/^(agua|pluvio|embalses\/ES\d{3})\.json$/.test(file)) throw new Error('Fichero no válido');
     const hit = agua.get(file);
     if (hit && Date.now() - hit.at < 15 * 60000) return hit.data;
     const repo = repoInfo(require('../../package.json'));
