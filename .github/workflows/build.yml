@@ -22,8 +22,10 @@ jobs:
             args: --win --x64 --arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -49,7 +51,7 @@ jobs:
           CHUBASCO_USERDATA="$PWD/smoke/ud" CHUBASCO_SMOKE_MINI=1 CHUBASCO_SMOKE_SHOT="$PWD/smoke/mini.png" npx electron . --demo
           grep -q '\[smoke\]' smoke/salida.txt
           test -s smoke/ventana.png && test -s smoke/mini.png
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: prueba-humo-${{ runner.os }}
@@ -68,7 +70,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         with:
           name: chubasco-${{ runner.os }}

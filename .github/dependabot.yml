@@ -1,0 +1,16 @@
+# Dependabot: las alertas y los arreglos de seguridad de npm van activados en
+# los ajustes del repositorio; aquí solo se mantienen al día las acciones de
+# GitHub fijadas por huella (SHA), una vez al mes y en una sola propuesta.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+    groups:
+      acciones:
+        patterns: ['*']
+    commit-message:
+      prefix: Acciones
