@@ -195,6 +195,113 @@ function pluvioDemo() {
   return { source: '© AEMET', until, periodsUntil: until, stations };
 }
 
+// Historia larga de una estación de la demo (history, normals y records de pluvio/<id>.json),
+// determinista. `i` es el número de la estación; según él, unas tienen historia desde 1920,
+// otras desde hace poco, o sin normales ni récords, para ver todos los casos de la ficha.
+function climateDemo(id) {
+  const i = Number(id.slice(1)) + (id[0] === 'C' ? 100 : 0);
+  let seed = (i + 1) * 2654435761 >>> 0;
+  const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let x = seed; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+  const gauss = () => Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(2 * Math.PI * rnd());
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const now = new Date(Date.now() - 4 * 86400000); // AEMET publica con unos días de retraso
+  const end = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  const dim = (k) => new Date(Date.UTC(Math.floor(k / 12), (k % 12) + 1, 0)).getUTCDate();
+  const kinds = { 0: [1920, true, 'aemet'], 1: [2001 * 12 + 2, false, 'aemet'], 2: [2013 * 12 + 5, false, null], 3: [null], 4: [1950 * 12 + 5, true, 'calculado'], 5: [1978 * 12, true, 'aemet'], 6: [end - 25, false, null] };
+  const kind = kinds[i] || [(i >= 100 ? 2008 : 1995 + ((i * 3) % 25)) * 12 + (i % 12), true, 'aemet'];
+  if (kind[0] === null) return {};
+  const m0 = kind[0] < 3000 ? kind[0] * 12 : kind[0];
+  // Clima de la estación: lluvia anual, temperatura media y qué variables mide.
+  const A = 320 + ((i * 53 + 21) % 50) * 10, T0 = 12 + ((i * 7) % 9);
+  const SEAS = [1.15, 0.95, 0.9, 1, 0.95, 0.55, 0.25, 0.3, 0.8, 1.25, 1.3, 1.2];
+  const P = SEAS.map((s) => r1((A / 12) * (s / 0.883)));
+  const sea = (m) => Math.sin((2 * Math.PI * (m + 0.5 - 3)) / 12);
+  const meas = { hr: i % 5 !== 3, wind: i % 4 !== 2, sun: i % 3 !== 1 };
+  const N = end - m0 + 1;
+  const H = { m0: `${String(Math.floor(m0 / 12)).padStart(4, '0')}-${String((m0 % 12) + 1).padStart(2, '0')}`, complete: kind[1] };
+  const cols = ['prec', 'rainDays', 'rainDays1', 'precMax', 'tmean', 'tmax', 'tmin', 'tmaxAbs', 'tminAbs', ...(meas.hr ? ['hr'] : []), ...(meas.wind ? ['wind', 'gust'] : []), ...(meas.sun ? ['sun'] : []), 'cov'];
+  for (const c of cols) H[c] = [];
+  for (let k = m0; k <= end; k++) {
+    const y = Math.floor(k / 12), m = k % 12, last = k === end;
+    // Meses sin datos y meses medidos a medias, más en los años antiguos.
+    const old = y < 1980;
+    let cov = last ? Math.min(100, Math.round((100 * now.getUTCDate()) / dim(k))) : old && rnd() < 0.15 ? 55 + Math.floor(rnd() * 35) : 100;
+    const none = (old && rnd() < 0.06) || (y < 1950 && rnd() < 0.1);
+    const row = {};
+    if (none) { for (const c of cols) H[c].push(null); continue; }
+    const prec = P[m] * Math.min(3.2, Math.exp(0.65 * gauss() - 0.21)) * (cov / 100);
+    const tm = T0 + 8.5 * sea(m) + 0.012 * (y - 1950) + 0.9 * gauss();
+    const dry = prec < 0.5;
+    row.prec = r1(prec);
+    row.rainDays = dry ? 0 : Math.max(1, Math.round(prec / (4 + 3 * rnd())));
+    row.rainDays1 = Math.max(0, row.rainDays - Math.floor(rnd() * 3));
+    row.precMax = r1(prec * (0.22 + 0.35 * rnd()));
+    const full = cov >= 50;
+    row.tmean = full ? r1(tm) : null;
+    row.tmax = full ? r1(tm + 5.5 + 1.2 * sea(m) + 0.4 * gauss()) : null;
+    row.tmin = full ? r1(tm - 5 - sea(m) + 0.4 * gauss()) : null;
+    row.tmaxAbs = r1(tm + 11 + 2 * rnd());
+    row.tminAbs = r1(tm - 10 - 2 * rnd());
+    row.hr = full && y >= 1960 ? Math.round(68 - 12 * sea(m) + 3 * gauss()) : null;
+    row.wind = full && y >= 1985 ? r1(Math.max(0.8, 2.6 - 0.3 * sea(m) + 0.4 * gauss())) : null;
+    row.gust = y >= 1985 ? r1(15 + 4 * rnd() + 6 * Math.max(0, gauss())) : null;
+    row.sun = full && y >= 1975 ? r1(6.8 + 3.7 * sea(m) + 0.6 * gauss()) : null;
+    row.cov = cov;
+    for (const c of cols) H[c].push(row[c]);
+  }
+  // Normales: la forma anual de la lluvia y de la temperatura, sin ruido.
+  const mon = (f) => Array.from({ length: 12 }, (_, m) => r1(f(m)));
+  const sum = (a) => r1(a.reduce((s, v) => s + v, 0)), avg = (a) => r1(a.reduce((s, v) => s + v, 0) / a.length);
+  const M = {
+    prec: P, precMed: mon((m) => P[m] * 0.88), precLo: mon((m) => P[m] * 0.08), precHi: mon((m) => P[m] * 3.1),
+    precQ: [0.43, 0.66, 0.94, 1.4].map((q) => mon((m) => P[m] * q)),
+    rainDays: mon((m) => P[m] / 6.5), rainDays1: mon((m) => P[m] / 8), precMax: mon((m) => P[m] * 0.36), precMaxHi: mon((m) => P[m] * 1.5),
+    tmean: mon((m) => T0 + 0.7 + 8.5 * sea(m)), tmax: mon((m) => T0 + 6.2 + 9.7 * sea(m)), tmin: mon((m) => T0 - 4.3 + 7.5 * sea(m)),
+    tmaxAbs: mon((m) => T0 + 12.7 + 8.5 * sea(m)), tminAbs: mon((m) => T0 - 10.3 + 8.5 * sea(m)), tmaxHi: mon((m) => T0 + 16 + 8.5 * sea(m)), tminLo: mon((m) => T0 - 14 + 8.5 * sea(m)),
+    hr: mon((m) => 68 - 12 * sea(m)), wind: mon((m) => 2.6 - 0.3 * sea(m)), gust: mon((m) => 17 + 2 * sea(m)), gustHi: mon((m) => 31 + 3 * sea(m)), sun: mon((m) => 6.8 + 3.7 * sea(m)),
+    snowDays: mon((m) => Math.max(0, 1.4 - 1.5 * sea(m) - 0.3) * (i % 2)), stormDays: mon((m) => 0.4 + 1.4 * Math.max(0, sea(m))),
+    fogDays: mon((m) => Math.max(0, 1.5 - 1.2 * sea(m))), clearDays: mon((m) => 7 + 5 * sea(m)), frostDays: mon((m) => Math.max(0, 6 - 7 * sea(m) - 1)), hotDays: mon((m) => Math.max(0, 9 * sea(m) - 2))
+  };
+  if (!meas.hr) delete M.hr;
+  if (!meas.wind) { delete M.wind; delete M.gust; delete M.gustHi; }
+  if (!meas.sun) delete M.sun;
+  const Y = {};
+  for (const [k, a] of Object.entries(M)) {
+    if (k === 'precQ') Y.precQ = [0.78, 0.92, 1.05, 1.22].map((q) => r1(sum(P) * q));
+    else if (/^(prec|rainDays|rainDays1|snowDays|stormDays|fogDays|clearDays|frostDays|hotDays)$/.test(k)) Y[k] = sum(a);
+    else if (/^(precMed|precLo|precHi|precMax|precMaxHi)$/.test(k)) Y[k] = k === 'precHi' ? r1(sum(P) * 1.8) : k === 'precLo' ? r1(sum(P) * 0.5) : k === 'precMed' ? r1(sum(P) * 0.95) : r1(Math.max(...a));
+    else if (/Abs$|Hi$/.test(k)) Y[k] = Math.max(...a);
+    else if (/Lo$/.test(k)) Y[k] = Math.min(...a);
+    else Y[k] = avg(a);
+  }
+  const normals = { period: '1991-2020', n: 30, months: M, year: Y };
+  // Récords: los de nuestra serie (en los oficiales, algún dato más antiguo y días de nieve y tormenta).
+  const out = { history: H, ...(i === 2 || i === 4 || i === 6 ? {} : { normals }) };
+  if (kind[2]) {
+    const key = (k) => `${String(Math.floor(k / 12)).padStart(4, '0')}-${String((k % 12) + 1).padStart(2, '0')}`;
+    const day = (k) => `${key(k)}-${String(1 + ((k * 7) % dim(k))).padStart(2, '0')}`;
+    const calc = kind[2] === 'calculado';
+    const pick = (col, sign, only) => { // el mejor valor de la columna (entre los meses `only(k, m)`)
+      let b = null;
+      H[col] && H[col].forEach((v, j) => { const k = m0 + j; if (v === null || (only && !only(k))) return; if (!b || sign * v > sign * b[0]) b = [v, k]; });
+      return b;
+    };
+    const ok = (k) => H.cov[k - m0] >= 90;
+    const mk = (b, d) => (b ? [b[0], d(b[1])] : null);
+    const spec = { precDay: ['precMax', 1, day, false], precHi: ['prec', 1, key, true], precLo: ['prec', -1, key, true], rainDays: ['rainDays', 1, key, true], tmaxHi: ['tmaxAbs', 1, day, false], tminLo: ['tminAbs', -1, day, false],
+      tmeanHi: ['tmean', 1, key, true], tmeanLo: ['tmean', -1, key, true], gustHi: ['gust', 1, day, false] };
+    const all = {}, month = {};
+    for (const [name, [col, sign, d, strict]] of Object.entries(spec)) {
+      all[name] = mk(pick(col, sign, strict && calc ? ok : null), d);
+      month[name] = Array.from({ length: 12 }, (_, m) => mk(pick(col, sign, (k) => k % 12 === m && (!calc || !strict || ok(k))), d));
+    }
+    for (const name of Object.keys(all)) if (!all[name]) { delete all[name]; delete month[name]; }
+    if (!calc) { all.snowDays = [9, '1963-02']; all.stormDays = [11, '1996-08']; }
+    out.records = { source: kind[2], ...(calc ? { from: H.m0 } : {}), all, month };
+  }
+  return out;
+}
+
 // Ficha de un pluviómetro, con la forma de pluvio/<id>.json.
 function pluvioStationDemo(id) {
   const row = pluvioDemo().stations.find((x) => x[0] === id);
@@ -213,7 +320,8 @@ function pluvioStationDemo(id) {
     daily: { d0: new Date(now - (D - 1) * 86400000).toISOString().slice(0, 10), vars: {
       prec: day((i) => (i % 9 === 0 ? 4 + (i % 23) : 0)), tmax: day((i) => 22 + 9 * Math.sin((i - 100) / 58)), tmin: day((i) => 10 + 7 * Math.sin((i - 100) / 58)), tmed: day((i) => 16 + 8 * Math.sin((i - 100) / 58)),
       velmedia: day((i) => 2.5 + Math.sin(i / 5)), racha: day((i) => 9 + 4 * Math.sin(i / 5)), hrMedia: day((i) => 60 - 15 * Math.sin((i - 100) / 58))
-    } }
+    } },
+    ...climateDemo(id)
   };
 }
 

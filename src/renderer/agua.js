@@ -6,11 +6,13 @@
  * radar) tiene su propia vista, y su lluvia sale de los pluviómetros. Los datos (agua.json,
  * pluvio.json y el histórico de cada cuenca, embalses/<id>.json) los publica
  * la web cada hora; aquí solo se muestran.
- * La ubicación y los datos de cada presa vienen de shared/embalses.js. */
+ * La ubicación y los datos de cada presa vienen de shared/embalses.js; las cuentas
+ * sobre la historia larga de cada pluviómetro (años, normales, quintiles), de shared/clima.js. */
 (function () {
   'use strict';
   const L = window.L;
   const CU = window.RA_CUENCAS;
+  const CL = window.RA_CLIMA;
   const EM = () => window.RA_EMBALSES || null;
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -36,7 +38,8 @@
       layer: L.layerGroup(), shapes: new Map(),
       res: null, hist: new Map(), points: new Map(), pointLayer: L.layerGroup(), query: '',
       pluvio: null, gauges: new Map(), gaugeLayer: L.layerGroup(),
-      gauge: null, gaugeFiles: new Map(), gaugeVar: 'rain', rainView: 'surface', surface: null
+      gauge: null, gaugeFiles: new Map(), gaugeVar: 'rain', rainView: 'surface', surface: null,
+      gOpen: new Map(), gv: null, charts: new Map()
     };
     map.createPane('agua').style.zIndex = 330;
     map.createPane('aguapoints').style.zIndex = 335;
@@ -63,8 +66,8 @@
     const inches = () => getUnits().rate === 'in';
     const rain = (mm) => {
       if (mm === null || mm === undefined) return '—';
-      if (inches()) return `${num(mm / 25.4, 2)} in`;
-      return `${num(mm, mm < 10 ? 1 : 0)} mm`;
+      if (inches()) return `${num(mm / 25.4, 2)}\u00a0in`;
+      return `${num(mm, mm < 10 ? 1 : 0)}\u00a0mm`;
     };
     const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '±') + num(Math.abs(v), 1);
     const dateText = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString(locale(), { day: 'numeric', month: 'long' });
@@ -592,33 +595,38 @@
     }
 
     // ----------------------------------------------------------------
-    // Ficha de un pluviómetro (pluvio/<id>.json): última observación, lluvia
-    // acumulada, gráficas por horas y por días de la variable elegida, lluvia
-    // de cada mes, récords y descarga en CSV.
+    // Ficha de un pluviómetro (pluvio/<id>.json): lluvia acumulada, comparación con lo
+    // normal, última observación, gráficas de la variable elegida (por horas, días, meses
+    // y años), climograma, récords, normales y descarga en CSV.
 
     const imperial = () => getUnits().distance === 'mi';
     const tempVal = (c) => (c === null || c === undefined ? null : imperial() ? (c * 9) / 5 + 32 : c);
-    const tempTxt = (c) => (c === null || c === undefined ? '—' : `${num(tempVal(c), 1)} °${imperial() ? 'F' : 'C'}`);
+    const tempTxt = (c) => (c === null || c === undefined ? '—' : `${num(tempVal(c), 1)}\u00a0°${imperial() ? 'F' : 'C'}`);
     const speedVal = (ms) => (ms === null || ms === undefined ? null : imperial() ? ms * 2.23694 : ms * 3.6);
-    const speedTxt = (ms) => (ms === null || ms === undefined ? '—' : `${num(speedVal(ms), 0)} ${imperial() ? 'mph' : 'km/h'}`);
+    const speedTxt = (ms) => (ms === null || ms === undefined ? '—' : `${num(speedVal(ms), 0)}\u00a0${imperial() ? 'mph' : 'km/h'}`);
     const compass = (deg) => (deg === null || deg === undefined ? '' : t('agua.compass').split(' ')[Math.round(deg / 45) % 8]);
     const rainVal = (mm) => (mm === null || mm === undefined ? null : inches() ? mm / 25.4 : mm);
     const rainUnit = () => (inches() ? 'in' : 'mm');
     const tUnit = () => (imperial() ? '°F' : '°C');
     const sUnit = () => (imperial() ? 'mph' : 'km/h');
 
-    // Qué se puede dibujar: cada grupo, con sus variables horarias y diarias.
+    // Qué se puede dibujar: cada grupo, con sus variables horarias, diarias y mensuales (history).
     const GROUPS = [
-      { id: 'rain', h: ['prec'], d: ['prec'] },
-      { id: 'temp', h: ['ta'], d: ['tmax', 'tmin', 'tmed'] },
-      { id: 'hum', h: ['hr'], d: ['hrMedia'] },
-      { id: 'wind', h: ['vv', 'vmax'], d: ['velmedia', 'racha'] },
+      { id: 'rain', h: ['prec'], d: ['prec'], m: ['prec'] },
+      { id: 'temp', h: ['ta'], d: ['tmax', 'tmin', 'tmed'], m: ['tmean', 'tmax', 'tmin'] },
+      { id: 'hum', h: ['hr'], d: ['hrMedia'], m: ['hr'] },
+      { id: 'wind', h: ['vv', 'vmax'], d: ['velmedia', 'racha'], m: ['wind', 'gust'] },
       { id: 'pres', h: ['pres_nmar', 'pres'], d: ['presMax', 'presMin'] },
-      { id: 'sun', h: ['inso'], d: ['sol'] },
+      { id: 'sun', h: ['inso'], d: ['sol'], m: ['sun'] },
       { id: 'soil', h: ['ts', 'tss5cm', 'tss20cm'], d: [] },
       { id: 'snow', h: ['nieve'], d: [] },
       { id: 'vis', h: ['vis'], d: [] }
     ];
+    // Hay historia mensual de ese grupo.
+    const hasHist = (G, id) => {
+      const g = GROUPS.find((x) => x.id === id);
+      return !!(g && g.m && G.history && G.history.m0 && g.m.some((k) => G.history[k] && G.history[k].some((v) => v !== null)));
+    };
 
     function loadGauge(id) {
       const h = st.gaugeFiles.get(id);
@@ -637,7 +645,11 @@
     const dayAt = (G, i) => new Date(Date.parse(G.daily.d0 + 'T12:00:00Z') + i * 86400000);
     const shortDate = (d, withYear) => d.toLocaleDateString(locale(), withYear ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
 
-    // Gráfica genérica: barras, líneas y bandas sobre uno o dos ejes.
+    // Gráfica genérica: barras, líneas, puntos y bandas sobre uno o dos ejes. Devuelve la
+    // función que da la posición (0…n-1) bajo un punto x del lienzo, para el cursor.
+    // Por serie: width, dash, alpha; part[] (puntos con datos a medias: barras claras,
+    // puntos huecos); ref (número o lista: las barras por debajo salen en `under`);
+    // w (ancho de la barra, 0-1). De la gráfica: ticks (rayas), xticks (rótulos), hi (resaltada).
     function chartXY(canvas, spec) {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth || 300, h = canvas.clientHeight || 110;
@@ -646,7 +658,7 @@
       ctx.scale(dpr, dpr);
       const css = getComputedStyle(document.documentElement);
       const color = (name, fb) => css.getPropertyValue(name).trim() || fb;
-      const ink = color('--muted', '#576875'), line = color('--line', '#d6dee4');
+      const ink = color('--muted', '#576875'), line = color('--line', '#d6dee4'), bg = color('--side', '#f6f8fa');
       const pal = { accent: color('--accent', '#0077aa'), warm: color('--amber-ink', '#8a5a00'), ink };
       const axes = spec.axes.map((ax, k) => {
         const vals = [];
@@ -655,7 +667,16 @@
         if (ax.zero) lo = Math.min(0, lo);
         if (ax.fixed) [lo, hi] = ax.fixed;
         if (hi - lo < (ax.minSpan || 1)) { const m = (hi + lo) / 2; lo = ax.zero ? lo : m - (ax.minSpan || 1) / 2; hi = lo + (ax.minSpan || 1); }
-        return { ...ax, lo, hi };
+        // nice: los tres valores de la rejilla redondos (0, 100, 200 en vez de 0, 92, 183).
+        let dec;
+        if (ax.nice) {
+          const mag = 10 ** Math.floor(Math.log10((hi - lo) / 2));
+          for (const k of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 15, 20]) {
+            const half = k * mag, l0 = ax.zero ? lo : Math.floor(lo / half) * half;
+            if (l0 + 2 * half >= hi - 1e-9) { lo = l0; hi = l0 + 2 * half; dec = half % 1 ? 1 : 0; break; }
+          }
+        }
+        return { ...ax, lo, hi, dec };
       });
       const pad = { l: 34, r: axes[1] ? 34 : 6, t: 6, b: 16 };
       const n = spec.n;
@@ -665,7 +686,7 @@
       ctx.font = '10px ' + (css.getPropertyValue('--font') || 'sans-serif');
       ctx.lineWidth = 1;
       // Rejilla y etiquetas de los ejes.
-      const fmt = (ax, v) => `${num(v, Math.abs(ax.hi - ax.lo) < 5 ? 1 : 0)}`;
+      const fmt = (ax, v) => `${num(v, ax.dec !== undefined ? ax.dec : Math.abs(ax.hi - ax.lo) < 0.5 ? 2 : Math.abs(ax.hi - ax.lo) < 5 ? 1 : 0)}`;
       for (const f of [0, 0.5, 1]) {
         const v0 = axes[0].lo + f * (axes[0].hi - axes[0].lo);
         ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(pad.l, y(axes[0], v0)); ctx.lineTo(w - pad.r, y(axes[0], v0)); ctx.stroke();
@@ -675,10 +696,14 @@
       ctx.fillStyle = ink;
       ctx.fillText(axes[0].unit, 0, h - 3);
       if (axes[1]) { ctx.fillStyle = pal.warm; ctx.fillText(axes[1].unit, w - ctx.measureText(axes[1].unit).width, h - 3); }
-      // Separadores (días o meses).
+      // Separadores (días, meses o años) y la posición bajo el cursor.
       ctx.strokeStyle = line; ctx.setLineDash([2, 3]);
       for (const i of spec.ticks || []) { ctx.beginPath(); ctx.moveTo(pad.l + i * bw, pad.t); ctx.lineTo(pad.l + i * bw, h - pad.b); ctx.stroke(); }
       ctx.setLineDash([]);
+      if (spec.hi !== null && spec.hi !== undefined) {
+        const bx = Math.min(w - pad.r - 3, pad.l + spec.hi * bw + bw / 2 - Math.max(bw, 3) / 2);
+        ctx.fillStyle = ink; ctx.globalAlpha = 0.16; ctx.fillRect(bx, pad.t, Math.max(bw, 3), h - pad.t - pad.b); ctx.globalAlpha = 1;
+      }
       for (const sr of spec.series) {
         const ax = axes[sr.axis || 0];
         const c = pal[sr.color] || sr.color || pal.accent;
@@ -698,19 +723,36 @@
           flush();
           ctx.globalAlpha = 1;
         } else if (sr.kind === 'bar') {
-          ctx.fillStyle = c;
+          const bwid = Math.max(1, Math.min(bw * (sr.w || 0.8), 26));
           for (let i = 0; i < n; i++) {
             const v = sr.v[i];
             if (v === null || v === undefined || v <= 0) continue;
-            const top = y(ax, v), base = y(ax, Math.max(ax.lo, 0));
-            ctx.fillRect(x(i) - Math.max(0.5, bw * 0.4), top, Math.max(1, bw * 0.8), Math.max(1, base - top));
+            const top = y(ax, v), base = y(ax, Math.max(ax.lo, 0)), ref = Array.isArray(sr.ref) ? sr.ref[i] : sr.ref;
+            ctx.fillStyle = ref !== null && ref !== undefined && v < ref ? pal[sr.under || 'warm'] : c;
+            ctx.globalAlpha = sr.part && sr.part[i] ? 0.35 : sr.alpha || 1;
+            ctx.fillRect(x(i) - bwid / 2, top, bwid, Math.max(1, base - top));
           }
+          ctx.globalAlpha = 1;
+        } else if (sr.kind === 'dots') {
+          ctx.fillStyle = c;
+          for (let i = 0; i < n; i++) { const v = sr.v[i]; if (v === null || v === undefined) continue; ctx.beginPath(); ctx.arc(x(i), y(ax, v), sr.r || 2.5, 0, 7); ctx.fill(); }
         } else {
-          ctx.strokeStyle = c; ctx.lineWidth = sr.width || 1.6; ctx.setLineDash(sr.dash || []);
-          ctx.beginPath();
-          let on = false;
-          for (let i = 0; i < n; i++) { const v = sr.v[i]; if (v === null || v === undefined) { on = false; continue; } if (on) ctx.lineTo(x(i), y(ax, v)); else { ctx.moveTo(x(i), y(ax, v)); on = true; } }
-          ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+          ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = sr.width || 1.6; ctx.setLineDash(sr.dash || []); ctx.globalAlpha = sr.alpha || 1;
+          const ok = (i) => sr.v[i] !== null && sr.v[i] !== undefined && !(sr.part && sr.part[i]);
+          for (let i = 0; i < n; i++) {
+            if (!ok(i)) continue;
+            let j = i;
+            while (j + 1 < n && ok(j + 1)) j++;
+            ctx.beginPath();
+            if (j === i) { ctx.setLineDash([]); ctx.arc(x(i), y(ax, sr.v[i]), 1.6, 0, 7); ctx.fill(); ctx.setLineDash(sr.dash || []); } else { for (let k = i; k <= j; k++) (k === i ? ctx.moveTo(x(k), y(ax, sr.v[k])) : ctx.lineTo(x(k), y(ax, sr.v[k]))); ctx.stroke(); }
+            i = j;
+          }
+          // Los puntos con datos a medias, huecos y sin unir.
+          if (sr.part) {
+            ctx.setLineDash([]); ctx.lineWidth = 1.2; ctx.fillStyle = bg;
+            for (let i = 0; i < n; i++) if (sr.part[i] && sr.v[i] !== null && sr.v[i] !== undefined) { ctx.beginPath(); ctx.arc(x(i), y(ax, sr.v[i]), 2.2, 0, 7); ctx.fill(); ctx.stroke(); }
+          }
+          ctx.setLineDash([]); ctx.lineWidth = 1; ctx.globalAlpha = 1;
         }
       }
       ctx.fillStyle = ink;
@@ -719,6 +761,11 @@
         ctx.fillText(a, pad.l, h - 3);
         ctx.fillText(b, w - pad.r - ctx.measureText(b).width, h - 3);
       }
+      for (const [i, text] of spec.xticks || []) {
+        const tw = ctx.measureText(text).width;
+        ctx.fillText(text, Math.min(w - pad.r - tw, Math.max(pad.l, x(i) - tw / 2)), h - 3);
+      }
+      return (px) => { const i = Math.floor((px - pad.l) / bw); return i >= 0 && i < n ? i : null; };
     }
 
     const conv = (a, f) => (a ? a.map((v) => (v === null || v === undefined ? null : f(v))) : null);
@@ -801,6 +848,211 @@
       return out;
     }
 
+    // ---- Historia larga (history, normals y records de la ficha; ver shared/clima.js) ----
+
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+    const monthName = (m, style = 'long') => new Date(Date.UTC(2001, m % 12, 15, 12)).toLocaleDateString(locale(), { month: style, timeZone: 'UTC' });
+    const monthShort = (m) => monthName(m, 'short').replace(/\.$/, '').slice(0, 3);
+    const pctInt = (p) => (p === null || p === undefined ? '—' : `${num(p, 0)}\u00a0%`);
+    const daysTxt = (n) => t(n === 1 ? 'agua.nDay' : 'agua.nDays', { n: num(n, Number.isInteger(n) ? 0 : 1) });
+    const tShort = (c) => `${num(tempVal(c), 0)}\u00a0${tUnit()}`;
+    // 'YYYY-MM-DD' → «12 oct 1982»; 'YYYY-MM' → «oct 1982».
+    const recDate = (d) => (typeof d !== 'string' ? '' : d.length >= 10 ? shortDate(new Date(d.slice(0, 10) + 'T12:00:00Z'), true) : d.length === 7 ? monthYear(d) : '');
+    const mLabel = (i) => monthYear(CL.mKey(i));
+    // El último día con datos de lluvia (AEMET publica con unos días de retraso).
+    const dataUntil = (G) => {
+      const [, i] = lastOf(G.daily && G.daily.vars && G.daily.vars.prec);
+      return i >= 0 ? dayAt(G, i).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    };
+
+    // Cómo se ve cada variable con historia: clave, cómo resumir el año, unidades y formato.
+    const HV = (id) => ({
+      rain: { k: 'prec', how: 'sum', cv: rainVal, fmt: rain, ax: { unit: rainUnit(), zero: true, nice: true, minSpan: rainVal(50) } },
+      temp: { k: 'tmean', how: 'mean', cv: tempVal, fmt: tempTxt, ax: { unit: tUnit(), nice: true, minSpan: 4 } },
+      hum: { k: 'hr', how: 'mean', cv: (v) => v, fmt: (v) => `${num(v, 0)}\u00a0%`, ax: { unit: '%', nice: true, minSpan: 10 } },
+      wind: { k: 'wind', how: 'mean', cv: speedVal, fmt: speedTxt, ax: { unit: sUnit(), zero: true, nice: true, minSpan: 10 } },
+      sun: { k: 'sun', how: 'mean', cv: (v) => v, fmt: (v) => `${num(v, 1)} h`, ax: { unit: 'h', zero: true, nice: true, minSpan: 4 } }
+    }[id] || null);
+    const nrmLine = (n, v) => (v === null || v === undefined ? [] : [{ kind: 'line', v: Array(n).fill(v), color: 'ink', dash: [4, 3], width: 1.2 }]);
+
+    // Una variable año a año, con lo normal como referencia: { spec, text(i), dflt, legend }.
+    function yearView(G, id) {
+      const d = HV(id), H = G.history;
+      if (!d || !hasHist(G, id)) return null;
+      const P = CL.yearly(H, d.k, d.how);
+      if (!P || P.v.length < 2) return null;
+      const N = G.normals && G.normals.year, nv = N && N[d.k] !== undefined ? N[d.k] : null;
+      const n = P.v.length, part = P.cov.map((c) => c < CL.COMPLETE);
+      const half = (Y) => Y.v.map((x, i) => (Y.cov[i] >= 0.5 ? x : null)); // la banda, con medio año al menos
+      const series = [];
+      if (id === 'temp') {
+        const hi = CL.yearly(H, 'tmax', 'mean'), lo = CL.yearly(H, 'tmin', 'mean');
+        if (hi && lo) series.push({ kind: 'band', lo: conv(half(lo), tempVal), hi: conv(half(hi), tempVal), color: 'warm' });
+      }
+      series.push(...nrmLine(n, nv === null ? null : d.cv(nv)));
+      if (id === 'rain' || id === 'sun') series.push({ kind: 'bar', v: conv(P.v, d.cv), part, color: id === 'sun' ? 'warm' : 'accent', ref: id === 'rain' && nv !== null ? d.cv(nv) : null });
+      else series.push({ kind: 'line', v: conv(P.v, d.cv), part, color: id === 'temp' ? 'warm' : 'accent' });
+      let G2 = null;
+      if (id === 'wind') {
+        G2 = CL.yearly(H, 'gust', 'max');
+        if (G2) series.push({ kind: 'line', axis: 1, v: conv(G2.v, speedVal), part: G2.cov.map((c) => c < CL.COMPLETE), color: 'warm', width: 1.1, dash: [2, 2] });
+      }
+      // Rótulos del eje: lo bastante espaciados para 100 años o para 3.
+      const step = [1, 2, 5, 10, 20, 50].find((s) => n / s <= 8), xticks = [];
+      for (let y = P.y0; y < P.y0 + n; y++) if (y % step === 0) xticks.push([y - P.y0, String(y)]);
+      const text = (i) => {
+        const v = P.v[i];
+        if (v === null) return `${P.y0 + i}: —`;
+        const g = G2 && G2.v[i] !== null && G2.v[i] !== undefined ? `, ${t('agua.v.gust').toLowerCase()} ${speedTxt(G2.v[i])}` : '';
+        return [`${P.y0 + i}: ${d.fmt(v)}${g}`, nv !== null ? `${t('agua.hover.normal')}: ${d.fmt(nv)}` : '', part[i] ? t('agua.hover.partial', { pct: pctInt(100 * P.cov[i]) }) : ''].filter(Boolean).join(' · ');
+      };
+      const X = CL.extremes(P);
+      const per = (G.normals && G.normals.period) || '';
+      const legend = [t('agua.lg.y.' + id), id === 'rain' && nv !== null ? t('agua.lg.rainCls') : '', nv !== null ? t('agua.lg.normal', { period: per }) : '', part.some(Boolean) ? t('agua.lg.partial') : ''].filter(Boolean).join(' ');
+      return { n, y0: P.y0, spec: { n, axes: [d.ax, ...(G2 ? [{ ...d.ax }] : [])], series, xticks, ticks: xticks.map(([i]) => i) }, text, legend, dflt: X ? t('agua.ext.' + id, { hi: `${X.hi[0]} (${d.fmt(X.hi[1])})`, lo: `${X.lo[0]} (${d.fmt(X.lo[1])})` }) : t('agua.hoverHint') };
+    }
+
+    // Los últimos `years` años mes a mes, con lo normal de cada mes.
+    function monthView(G, id, years = 5) {
+      const d = HV(id), H = G.history, g = GROUPS.find((x) => x.id === id);
+      if (!d || !hasHist(G, id)) return null;
+      const len = CL.length(H, g.m);
+      if (len < 2) return null;
+      const f0 = CL.mIdx(H.m0), n = Math.min(years * 12, len), start = f0 + len - n;
+      const sl = (k) => Array.from({ length: n }, (_, i) => CL.at(H, k, start + i));
+      const Nm = G.normals && G.normals.months, nm = Nm && Nm[d.k] ? Array.from({ length: n }, (_, i) => { const v = Nm[d.k][(start + i) % 12]; return v === undefined ? null : v; }) : null;
+      const P = sl(d.k), cov = sl('cov'), nmv = nm ? conv(nm, d.cv) : null;
+      const part = id === 'rain' ? cov.map((c) => c !== null && c < 100 * CL.COMPLETE) : null;
+      const series = [];
+      if (id === 'temp') series.push({ kind: 'band', lo: conv(sl('tmin'), tempVal), hi: conv(sl('tmax'), tempVal), color: 'warm' });
+      if (nmv) series.push({ kind: 'line', v: nmv, color: 'ink', dash: [4, 3], width: 1.2 });
+      if (id === 'rain' || id === 'sun') series.push({ kind: 'bar', v: conv(P, d.cv), part, color: id === 'sun' ? 'warm' : 'accent', ref: id === 'rain' ? nmv : null });
+      else series.push({ kind: 'line', v: conv(P, d.cv), color: id === 'temp' ? 'warm' : 'accent' });
+      const gu = id === 'wind' ? sl('gust') : null;
+      if (gu) series.push({ kind: 'line', axis: 1, v: conv(gu, speedVal), color: 'warm', width: 1.1, dash: [2, 2] });
+      const xticks = [];
+      for (let i = 0; i < n; i++) if ((start + i) % 12 === 0) xticks.push([i, String(Math.floor((start + i) / 12))]);
+      const text = (i) => {
+        const v = P[i];
+        const gs = gu && gu[i] !== null ? `, ${t('agua.v.gust').toLowerCase()} ${speedTxt(gu[i])}` : '';
+        return [`${mLabel(start + i)}: ${v === null ? '—' : d.fmt(v)}${v === null ? '' : gs}`, nm && nm[i] !== null ? `${t('agua.hover.normal')}: ${d.fmt(nm[i])}` : '', part && part[i] ? t('agua.hover.partialM', { pct: pctInt(cov[i]) }) : ''].filter(Boolean).join(' · ');
+      };
+      return { n, spec: { n, axes: [{ ...d.ax, minSpan: id === 'rain' ? rainVal(20) : d.ax.minSpan }, ...(gu ? [{ ...d.ax }] : [])], series, xticks, ticks: xticks.map(([i]) => i), labels: xticks.length ? null : [mLabel(start), mLabel(start + n - 1)] }, text, legend: [t('agua.lg.m.' + id), id === 'rain' && nmv ? t('agua.lg.rainCls') : '', nmv ? t('agua.lg.normalM', { period: (G.normals && G.normals.period) || '' }) : ''].filter(Boolean).join(' '), dflt: t('agua.hoverHint') };
+    }
+
+    // Climograma: lo normal de cada mes (lluvia, máxima y mínima) y los últimos 12 meses enteros encima.
+    function climoView(G) {
+      const Nm = G.normals && G.normals.months, Ny = (G.normals && G.normals.year) || {}, H = G.history;
+      const has = (k) => !!(Nm && Nm[k] && Nm[k].some((v) => v !== null && v !== undefined));
+      if (!has('prec')) return null;
+      const temps = has('tmax') && has('tmin');
+      const end = CL.lastComplete(dataUntil(G));
+      // Para cada mes del año, su última aparición entre los 12 meses últimos (o ninguna).
+      const win = Array.from({ length: 12 }, () => null);
+      if (H) for (let i = end - 11; i <= end; i++) win[i % 12] = i;
+      const real = (k, i) => (i === null ? null : k === 'prec' ? (CL.cover(H, 'prec', i) >= CL.MONTH_OK ? CL.at(H, 'prec', i) : null) : CL.at(H, k, i));
+      const act = (k) => win.map((i) => real(k, i));
+      const hasAct = H && act('prec').some((v) => v !== null);
+      const pN = conv(Nm.prec, rainVal);
+      const series = [];
+      if (temps) series.push({ kind: 'band', axis: 1, lo: conv(Nm.tmin, tempVal), hi: conv(Nm.tmax, tempVal), color: 'warm' });
+      series.push({ kind: 'bar', v: pN, alpha: 0.3, w: 0.9 });
+      if (hasAct) series.push({ kind: 'bar', v: conv(act('prec'), rainVal), w: 0.42, ref: pN, under: 'warm' });
+      if (temps) {
+        series.push({ kind: 'line', axis: 1, v: conv(Nm.tmax, tempVal), color: 'warm', width: 1.4 }, { kind: 'line', axis: 1, v: conv(Nm.tmin, tempVal), color: 'warm', width: 1.4 });
+        if (hasAct) series.push({ kind: 'dots', axis: 1, v: conv(act('tmax'), tempVal), color: 'warm', r: 2.6 }, { kind: 'dots', axis: 1, v: conv(act('tmin'), tempVal), color: 'warm', r: 2.6 });
+      }
+      const range = (lo, hi) => (lo === null || hi === null || lo === undefined || hi === undefined ? '' : `, ${num(tempVal(lo), 0)} ${t('agua.hover.to')} ${num(tempVal(hi), 0)}\u00a0${tUnit()}`);
+      const text = (m) => {
+        const i = win[m], r = real('prec', i);
+        const parts = [`${t('agua.hover.normal')}: ${rain(Nm.prec[m])}${temps ? range(Nm.tmin[m], Nm.tmax[m]) : ''}`];
+        if (i !== null && (r !== null || real('tmax', i) !== null)) parts.push(`${mLabel(i)}: ${r === null ? '—' : rain(r)}${temps ? range(real('tmin', i), real('tmax', i)) : ''}`);
+        return `${cap(monthName(m))} — ${parts.join(' · ')}`;
+      };
+      const year = Ny.prec !== null && Ny.prec !== undefined && Ny.tmean !== null && Ny.tmean !== undefined ? t('agua.climo.year', { rain: rain(Ny.prec), temp: tempTxt(Ny.tmean) }) : t('agua.hoverHint');
+      const per = G.normals.period || '';
+      return { spec: { n: 12, axes: [{ unit: rainUnit(), zero: true, nice: true, minSpan: rainVal(40) }, ...(temps ? [{ unit: tUnit(), nice: true, minSpan: 10 }] : [])], series, xticks: Array.from({ length: 12 }, (_, m) => [m, monthShort(m)]) }, text, dflt: year,
+        legend: hasAct ? t('agua.lg.climo', { period: per, from: mLabel(end - 11), to: mLabel(end) }) : t('agua.lg.climoN', { period: per }) };
+    }
+
+    // «Comparado con lo normal»: este mes, el año hidrológico y el último mes entero.
+    function vsHtml(G) {
+      if (!G.history || !G.normals) return '';
+      const c = CL.compare(G.history, G.normals, dataUntil(G));
+      const row = (k, v) => `<div><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`;
+      const of = (key, o) => t(key, { pct: pctInt(o.pct), normal: rain(o.normal) });
+      const rows = [];
+      if (c.month && c.month.pct !== null) rows.push(row(cap(t('agua.vs.monthSoFar', { month: monthName(CL.mIdx(c.month.key)), day: c.month.day })), `${esc(rain(c.month.mm))}, ${esc(of('agua.vs.ofMonth', c.month))}`));
+      if (c.hydro && c.hydro.pct !== null) rows.push(row(t('agua.vs.hydro'), `${esc(rain(c.hydro.mm))}, ${esc(of('agua.vs.ofDate', c.hydro))}${c.hydro.cov < 0.9 ? ` <small>${esc(t('agua.vs.partial'))}</small>` : ''}`));
+      const L = c.last;
+      if (L && L.rain) {
+        const cls = L.rain.cls === null ? '' : ` <strong class="cls c${L.rain.cls}">${esc(t('agua.vs.c' + L.rain.cls))}</strong>,`;
+        rows.push(row(cap(t('agua.vs.rainOf', { month: monthName(CL.mIdx(L.key)) })), `${esc(rain(L.rain.mm))},${cls} ${esc(L.rain.pct === null ? '' : of('agua.vs.ofMonth', L.rain))}`));
+      }
+      if (L && L.temp) {
+        const dd = imperial() ? L.temp.delta * 1.8 : L.temp.delta, dTxt = `${num(Math.abs(dd), 1)}\u00a0${tUnit()}`;
+        const how = Math.abs(dd) < 0.05 ? t('agua.vs.same') : dd > 0 ? t('agua.vs.above', { d: `+${dTxt}` }) : t('agua.vs.below', { d: dTxt });
+        rows.push(row(cap(t('agua.vs.tempOf', { month: monthName(CL.mIdx(L.key)) })), `${esc(tempTxt(L.temp.t))}, ${esc(how)} <small>(${esc(tempTxt(L.temp.normal))})</small>`));
+      }
+      if (!rows.length) return '';
+      return `<h3>${esc(t('agua.vs.title'))}</h3><div class="agua-vs">${rows.join('')}</div><p class="hint">${esc(t('agua.vs.period', { period: G.normals.period || '' }))}</p>`;
+    }
+
+    // Una sección que se pliega; recuerda si está abierta aunque la ficha se repinte.
+    const secOpen = (key, dflt) => (st.gOpen.has(key) ? st.gOpen.get(key) : dflt);
+    const sec = (key, title, body, dflt = true) => `<details class="agua-sec" data-sec="${key}"${secOpen(key, dflt) ? ' open' : ''}><summary><h3>${esc(title)}</h3></summary>${body}</details>`;
+
+    // Récords: los oficiales de AEMET o los calculados con el histórico.
+    function recordsHtml(G) {
+      const R = G.records, all = R && R.all;
+      if (!all) return '';
+      const F = { precDay: rain, precHi: rain, precLo: rain, rainDays: daysTxt, tmaxHi: tempTxt, tminLo: tempTxt, tmeanHi: tempTxt, tmeanLo: tempTxt, gustHi: speedTxt, snowDays: daysTxt, stormDays: daysTxt };
+      const rows = Object.keys(F).filter((k) => Array.isArray(all[k]) && all[k][0] !== null && all[k][0] !== undefined);
+      if (!rows.length) return '';
+      const calc = R.source === 'calculado';
+      let body = `<p class="hint">${esc(calc ? t('agua.recNoteCalc', { from: R.from ? monthYear(R.from) : '' }) : t('agua.recNoteAemet'))}</p>`;
+      body += `<dl class="agua-dam">${rows.map((k) => `<div><dt>${esc(t('agua.rec.' + k))}</dt><dd>${esc(F[k](all[k][0]))} <small>${esc(recDate(all[k][1]))}</small></dd></div>`).join('')}</dl>`;
+      // Récord de cada mes, en una tabla.
+      const cols = ['precDay', 'tmaxHi', 'tminLo', 'gustHi'].filter((k) => R.month && Array.isArray(R.month[k]) && R.month[k].some((e) => e));
+      if (cols.length) {
+        const cell = (k, m) => { const e = R.month[k][m]; return e ? `${esc(F[k](e[0]))} <small>${esc(String(e[1]).slice(0, 4))}</small>` : '—'; };
+        body += `<details class="agua-sub" data-sec="recmonths"${secOpen('recmonths', false) ? ' open' : ''}><summary>${esc(t('agua.rec.monthly'))}</summary><div class="agua-scroll"><table class="agua-tbl"><thead><tr><th>${esc(t('agua.rec.m.month'))}</th>${cols.map((k) => `<th>${esc(t('agua.rec.m.' + k))}</th>`).join('')}</tr></thead><tbody>${
+          Array.from({ length: 12 }, (_, m) => `<tr><td>${esc(cap(monthShort(m)))}</td>${cols.map((k) => `<td>${cell(k, m)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
+      }
+      return sec('recs', t(calc ? 'agua.recCalc' : 'agua.recAemet'), body);
+    }
+
+    // Normales de AEMET, mes a mes.
+    function normalsHtml(G) {
+      const N = G.normals;
+      if (!N || !N.months) return '';
+      const M = N.months, Y = N.year || {};
+      const has = (k) => (M[k] && M[k].some((v) => v !== null && v !== undefined)) || (Y[k] !== null && Y[k] !== undefined);
+      // Una tabla con una fila por mes y la del año; cada columna: [clave, formato, unidad, grupo].
+      const table = (cols) => {
+        cols = cols.filter(([k]) => has(k));
+        if (!cols.length) return '';
+        const f = (fn, v) => (v === null || v === undefined ? '—' : esc(fn(v)));
+        const head = cols.map(([k, , u]) => `<th>${esc(t('agua.norm.' + k))}${u ? `<small>${esc(u)}</small>` : ''}</th>`).join('');
+        // Fila de grupos (Lluvia, Temperatura) sobre las columnas que comparten uno.
+        let groups = '';
+        for (let i = 0; i < cols.length;) {
+          let j = i + 1;
+          while (cols[i][3] && j < cols.length && cols[j][3] === cols[i][3]) j++;
+          groups += `<th${j - i > 1 ? ` colspan="${j - i}"` : ''}>${cols[i][3] ? esc(t('agua.g.' + cols[i][3])) : ''}</th>`;
+          i = j;
+        }
+        const months = Array.from({ length: 12 }, (_, m) => `<tr><td>${esc(cap(monthShort(m)))}</td>${cols.map(([k, fn]) => `<td>${f(fn, M[k] ? M[k][m] : null)}</td>`).join('')}</tr>`).join('');
+        return `<div class="agua-scroll"><table class="agua-tbl"><thead>${cols.some((c) => c[3]) ? `<tr class="grp"><th></th>${groups}</tr>` : ''}<tr><th></th>${head}</tr></thead><tbody>${months}<tr class="tot"><td>${esc(t('agua.norm.year'))}</td>${cols.map(([k, fn]) => `<td>${f(fn, Y[k])}</td>`).join('')}</tr></tbody></table></div>`;
+      };
+      const d1 = (v) => num(v, 1), tv = (v) => num(tempVal(v), 1);
+      const main = table([['prec', (v) => num(rainVal(v), inches() ? 2 : 1), rainUnit(), 'rain'], ['rainDays', d1, '', 'rain'], ['tmean', tv, tUnit(), 'temp'], ['tmax', tv, tUnit(), 'temp'], ['tmin', tv, tUnit(), 'temp'], ['hr', (v) => num(v, 0), '%'], ['wind', (v) => num(speedVal(v), 0), sUnit()], ['sun', d1, 'h']]);
+      const days = table(['frostDays', 'hotDays', 'snowDays', 'stormDays', 'fogDays', 'clearDays'].map((k) => [k, d1, '']));
+      if (!main && !days) return '';
+      const body = `<p class="hint">${esc(t('agua.normNote', { period: N.period || '', n: N.n || '' }))}</p>${main}${days ? `<p class="agua-subtitle">${esc(t('agua.norm.daysTitle'))}</p>${days}` : ''}${has('frostDays') || has('hotDays') ? `<p class="hint">${esc(t('agua.norm.daysNote', { frost: tShort(0), hot: tShort(30) }))}</p>` : ''}`;
+      return sec('norm', t('agua.norm', { period: N.period || '' }), body, false);
+    }
+
     function renderGauge() {
       const id = st.gauge;
       const row = gaugeRows().find((g) => g[0] === id);
@@ -817,6 +1069,7 @@
         if (p && p.periodsUntil && Date.parse(p.until) - Date.parse(p.periodsUntil) > 3 * 3600000) html += `<p class="hint">${esc(t('agua.gaugeLag', { date: dateText(new Date(Date.parse(p.periodsUntil) - 8 * 3600000).toISOString().slice(0, 10)) }))}</p>`;
       }
       if (!G) return html + `<p class="hint">${esc(e && e.loading ? t('agua.loading') : t('agua.gaugeError'))}</p>`;
+      html += vsHtml(G);
       // Última observación: todo lo que mide la estación.
       const Hv = (G.hourly && G.hourly.vars) || {};
       const [, iLast] = lastOf(Hv.ta || Hv.prec || Hv.hr || Object.values(Hv)[0]);
@@ -838,21 +1091,33 @@
         const when = hourAt(G, iLast).toLocaleString(locale(), { weekday: 'short', hour: '2-digit', minute: '2-digit' });
         html += `<h3>${esc(t('agua.gaugeNow', { time: when }))}</h3><dl class="agua-dam">${facts.map(([k, x]) => `<div><dt>${esc(t(k))}</dt><dd>${x.includes('<small>') ? x : esc(x)}</dd></div>`).join('')}</dl>`;
       }
-      // Gráficas de la variable elegida.
-      const groups = GROUPS.filter((g) => groupSpec(G, g.id, 'h') || groupSpec(G, g.id, 'd'));
+      // Gráficas de la variable elegida: horas, días, meses y años.
+      const groups = GROUPS.filter((g) => groupSpec(G, g.id, 'h') || groupSpec(G, g.id, 'd') || hasHist(G, g.id));
       if (!groups.some((g) => g.id === st.gaugeVar)) st.gaugeVar = groups.length ? groups[0].id : 'rain';
+      st.gv = { month: monthView(G, st.gaugeVar), year: yearView(G, st.gaugeVar), climo: climoView(G) };
+      const chart = (kind, v) => `<canvas class="agua-chart tall" data-chart="${kind}"></canvas><p class="agua-readout${kind === 'g-climo' ? ' two' : ''}"></p><p class="hint">${esc(v.legend)}</p>`;
       if (groups.length) {
         html += `<div class="chips" role="group" aria-label="${esc(t('agua.variable'))}">${groups.map((g) => `<button type="button" data-gvar="${g.id}" aria-pressed="${st.gaugeVar === g.id}">${esc(t('agua.g.' + g.id))}</button>`).join('')}</div>`;
         const hs = groupSpec(G, st.gaugeVar, 'h');
         if (hs) html += `<h3>${esc(t('agua.hourlyChart', { n: Math.round(hs.n / 24) }))}</h3><canvas class="agua-chart tall" data-chart="g-hour"></canvas><p class="hint">${esc(t(hs.legend))}</p>`;
         const ds = tail(groupSpec(G, st.gaugeVar, 'd'), 92);
         if (ds) html += `<h3>${esc(t('agua.dailyChart', { n: ds.n }))}</h3><canvas class="agua-chart tall" data-chart="g-day"></canvas><p class="hint">${esc(t(ds.legend))}</p>`;
+        const { month: mv, year: yv } = st.gv;
+        if (mv) html += sec('hmonths', mv.n >= 24 ? t('agua.histMonths', { n: Math.round(mv.n / 12) }) : t('agua.histMonthsShort', { n: mv.n }), chart('g-hmonth', mv));
+        if (yv) html += sec('hyears', t('agua.histYears', { y: yv.y0 }), chart('g-year', yv) + (G.history.complete === false ? `<p class="hint">${esc(t('agua.histFilling', { y: G.history.m0.slice(0, 4) }))}</p>` : ''));
       }
-      const mo = monthly(G);
+      // Sin historia larga, la lluvia de cada mes de los 2 años de datos diarios.
+      const mo = G.history ? null : monthly(G);
       if (mo) html += `<h3>${esc(t('agua.monthlyChart'))}</h3><canvas class="agua-chart" data-chart="g-month"></canvas>`;
-      const rec = records(G);
+      if (st.gv.climo) html += sec('climo', t('agua.climo'), chart('g-climo', st.gv.climo));
+      // Récords: oficiales de AEMET o calculados; si no hay, los de los 2 años de datos diarios.
+      const recs = recordsHtml(G);
+      const rec = recs ? [] : records(G);
+      html += recs;
       if (rec.length) html += `<h3>${esc(t('agua.recordsSince', { date: shortDate(dayAt(G, 0), true) }))}</h3><dl class="agua-dam">${rec.join('')}</dl>`;
-      html += `<p class="agua-csv"><button type="button" class="link-btn" data-csv="h">${esc(t('agua.csvHours'))}</button> · <button type="button" class="link-btn" data-csv="d">${esc(t('agua.csvDays'))}</button></p>`;
+      if (!recs && G.history && G.history.complete === false) html += `<p class="hint">${esc(t('agua.recWait'))}</p>`;
+      html += normalsHtml(G);
+      html += `<p class="agua-csv"><button type="button" class="link-btn" data-csv="h">${esc(t('agua.csvHours'))}</button><button type="button" class="link-btn" data-csv="d">${esc(t('agua.csvDays'))}</button>${G.history ? `<button type="button" class="link-btn" data-csv="m">${esc(t('agua.csvMonths'))}</button>` : ''}</p>`;
       html += `<p class="hint">${esc(t('agua.gaugeSource'))}</p>`;
       return html;
     }
@@ -860,18 +1125,27 @@
     function drawGaugeCharts(el) {
       const G = st.gauge && st.gaugeFiles.get(st.gauge) && st.gaugeFiles.get(st.gauge).data;
       if (!G) return;
+      st.charts = new Map();
       el.querySelectorAll('canvas[data-chart^="g-"]').forEach((c) => {
-        if (c.dataset.chart === 'g-hour') {
+        if (c.closest('details:not([open])')) return; // se dibuja al abrir la sección
+        const kind = c.dataset.chart, V = st.gv || {};
+        const view = kind === 'g-hmonth' ? V.month : kind === 'g-year' ? V.year : kind === 'g-climo' ? V.climo : null;
+        if (view) {
+          // Con lectura al pasar el cursor (o tocar): ver `hover`.
+          st.charts.set(c, { ...view, hi: null, at: chartXY(c, view.spec) });
+          const ro = c.nextElementSibling;
+          if (ro && ro.classList.contains('agua-readout')) ro.textContent = view.dflt;
+        } else if (kind === 'g-hour') {
           const sp = groupSpec(G, st.gaugeVar, 'h');
           const ticks = [];
           for (let i = 1; i < sp.n; i++) if (hourAt(G, i).getHours() === 0) ticks.push(i);
           chartXY(c, { ...sp, ticks, labels: [shortDate(hourAt(G, 0)), hourAt(G, sp.n - 1).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })] });
-        } else if (c.dataset.chart === 'g-day') {
+        } else if (kind === 'g-day') {
           const sp = tail(groupSpec(G, st.gaugeVar, 'd'), 92);
           const off = sp.off || 0, ticks = [];
           for (let i = 1; i < sp.n; i++) if (dayAt(G, off + i).getUTCDate() === 1) ticks.push(i);
           chartXY(c, { ...sp, ticks, labels: [shortDate(dayAt(G, off)), shortDate(dayAt(G, off + sp.n - 1))] });
-        } else if (c.dataset.chart === 'g-month') {
+        } else if (kind === 'g-month') {
           const mo = monthly(G);
           const label = (k) => new Date(k + '-15T12:00:00Z').toLocaleDateString(locale(), { month: 'short', year: 'numeric' });
           chartXY(c, { n: mo.keys.length, axes: [{ unit: rainUnit(), zero: true, minSpan: 10 }], series: [{ kind: 'bar', v: conv(mo.v, rainVal) }], labels: [label(mo.keys[0]), label(mo.keys[mo.keys.length - 1])] });
@@ -879,17 +1153,32 @@
       });
     }
 
+    // Lectura de la gráfica bajo el cursor (o el dedo): resalta el mes o el año y dice su valor.
+    function hover(e) {
+      const c = e.target.closest && e.target.closest('canvas.agua-chart');
+      const info = c && st.charts.get(c);
+      if (!info) return;
+      if (e.type === 'pointerleave' && e.pointerType !== 'mouse') return; // con el dedo, la lectura se queda hasta el siguiente toque
+      const i = e.type === 'pointerleave' ? null : info.at(e.clientX - c.getBoundingClientRect().left);
+      if (i === info.hi) return;
+      info.hi = i;
+      chartXY(c, { ...info.spec, hi: i });
+      const ro = c.nextElementSibling;
+      if (ro) ro.textContent = i === null ? info.dflt : info.text(i);
+    }
+
     // Todo lo guardado de la estación, en CSV (unidades de AEMET).
-    const UNITS = { prec: 'mm', ta: 'C', tamin: 'C', tamax: 'C', tpr: 'C', ts: 'C', tss5cm: 'C', tss20cm: 'C', tmed: 'C', tmin: 'C', tmax: 'C', hr: '%', hrMedia: '%', hrMax: '%', hrMin: '%', vv: 'm_s', vmax: 'm_s', velmedia: 'm_s', racha: 'm_s', dv: 'grados', dmax: 'grados', dir: 'grados', pres: 'hPa', pres_nmar: 'hPa', presMax: 'hPa', presMin: 'hPa', inso: 'min', sol: 'h', vis: 'km', nieve: 'cm', pintMax: 'mm_h' };
+    const UNITS = { prec: 'mm', ta: 'C', tamin: 'C', tamax: 'C', tpr: 'C', ts: 'C', tss5cm: 'C', tss20cm: 'C', tmed: 'C', tmin: 'C', tmax: 'C', hr: '%', hrMedia: '%', hrMax: '%', hrMin: '%', vv: 'm_s', vmax: 'm_s', velmedia: 'm_s', racha: 'm_s', dv: 'grados', dmax: 'grados', dir: 'grados', pres: 'hPa', pres_nmar: 'hPa', presMax: 'hPa', presMin: 'hPa', inso: 'min', sol: 'h', vis: 'km', nieve: 'cm', pintMax: 'mm_h',
+      rainDays: 'dias', rainDays1: 'dias', precMax: 'mm', tmean: 'C', tmaxAbs: 'C', tminAbs: 'C', wind: 'm_s', gust: 'm_s', sun: 'h', cov: '%' };
     function downloadCsv(kind) {
       const G = st.gaugeFiles.get(st.gauge) && st.gaugeFiles.get(st.gauge).data;
-      const block = G && (kind === 'h' ? G.hourly : G.daily);
+      const block = G && (kind === 'h' ? G.hourly : kind === 'd' ? G.daily : G.history && { vars: Object.fromEntries(Object.entries(G.history).filter(([, a]) => Array.isArray(a))) });
       if (!block) return;
       const keys = Object.keys(block.vars);
       const n = Math.max(...keys.map((k) => block.vars[k].length));
-      const lines = [[kind === 'h' ? 'fecha_hora_utc' : 'fecha', ...keys.map((k) => `${k}_${UNITS[k] || ''}`.replace(/_$/, ''))].join(',')];
+      const lines = [[kind === 'h' ? 'fecha_hora_utc' : kind === 'd' ? 'fecha' : 'mes', ...keys.map((k) => `${k}_${UNITS[k] || ''}`.replace(/_$/, ''))].join(',')];
       for (let i = 0; i < n; i++) {
-        const when = kind === 'h' ? hourAt(G, i).toISOString().slice(0, 16).replace('T', ' ') : dayAt(G, i).toISOString().slice(0, 10);
+        const when = kind === 'h' ? hourAt(G, i).toISOString().slice(0, 16).replace('T', ' ') : kind === 'd' ? dayAt(G, i).toISOString().slice(0, 10) : CL.mKey(CL.mIdx(G.history.m0) + i);
         const vals = keys.map((k) => (block.vars[k][i] === null || block.vars[k][i] === undefined ? '' : block.vars[k][i]));
         if (vals.every((v) => v === '')) continue;
         lines.push([when, ...vals].join(','));
@@ -897,7 +1186,7 @@
       const text = `# ${t('agua.gaugeSource')}\n# ${G.name} (AEMET ${G.id})\n${lines.join('\n')}\n`;
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
-      a.download = `aemet-${G.id}-${kind === 'h' ? 'horas' : 'dias'}.csv`;
+      a.download = `aemet-${G.id}-${{ h: 'horas', d: 'dias', m: 'meses' }[kind]}.csv`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     }
@@ -1039,6 +1328,17 @@
       const row = e.target.closest('.agua-row');
       if (row) select(row.dataset.id, true);
     });
+
+    dom.panel.addEventListener('pointermove', hover);
+    dom.panel.addEventListener('pointerdown', hover);
+    dom.panel.addEventListener('pointerleave', hover, true);
+    // Secciones plegables de la ficha: recordar si están abiertas y dibujar las gráficas al abrirlas.
+    dom.panel.addEventListener('toggle', (e) => {
+      const d = e.target;
+      if (!d.dataset || !d.dataset.sec) return;
+      st.gOpen.set(d.dataset.sec, d.open);
+      if (d.open) drawGaugeCharts(dom.panel);
+    }, true);
 
     function openRes(id, name, fromList) {
       const prevBasin = st.selected;
