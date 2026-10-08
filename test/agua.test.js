@@ -82,3 +82,12 @@ test('embalses: reserva por cuenca, semana anterior, hace un año y lista', asyn
   assert.equal(out.total.cap, 1200, 'lo que no es de ninguna cuenca no cuenta');
   assert.deepEqual(out.weekDates, ['2025-10-07', '2026-09-29', '2026-10-06']);
 });
+
+test('el script de datos importa todo lo que usa de lib.mjs', async () => {
+  const fs = require('fs');
+  const src = fs.readFileSync(path.join(__dirname, '../scripts/agua/datos.mjs'), 'utf8');
+  const imported = /import \{([^}]+)\} from '\.\/lib\.mjs'/.exec(src)[1].split(',').map((x) => x.trim());
+  for (const name of Object.keys(await lib())) {
+    if (new RegExp(`\\b${name}\\(`).test(src) || new RegExp(`\\b${name}\\.`).test(src)) assert.ok(imported.includes(name), `falta importar ${name}`);
+  }
+});

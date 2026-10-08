@@ -21,7 +21,7 @@ import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
 import MDBReader from 'mdb-reader';
 import * as hdf5 from 'jsfive';
-import { GRID, buildMasks, basinHour, sumHours, hydroYearStart } from './lib.mjs';
+import { GRID, buildMasks, basinHour, sumHours, hydroYearStart, summarizeReservoirs } from './lib.mjs';
 
 const require = createRequire(import.meta.url);
 const TIFF = require('../../src/main/tiff.js');
