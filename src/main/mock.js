@@ -103,6 +103,37 @@ function lightningTile(u) {
   return PNG.sync.write(png);
 }
 
+// Agua en España: valores inventados con la forma de agua.json.
+function aguaDemo() {
+  const { basins } = require('../shared/cuencas');
+  const now = Date.now();
+  const wave = (i, k) => 0.5 + 0.5 * Math.sin(i * 1.7 + k);
+  const weekDates = Array.from({ length: 53 }, (_, k) => new Date(now - (52 - k) * 7 * 86400000).toISOString().slice(0, 10));
+  const res = { basins: {} };
+  let cap = 0, vol = 0;
+  basins.forEach((b, i) => {
+    if (!b.ambitos.length) return;
+    const c = Math.round(b.areaKm2 / 8), pct = Math.round(300 + 450 * wave(i, 0)) / 10;
+    const weeks = weekDates.map((_, k) => Math.round(10 * (pct - 8 * Math.sin((52 - k) / 9 + i))) / 10);
+    cap += c; vol += (c * pct) / 100;
+    res.basins[b.id] = {
+      cap: c, vol: Math.round((c * pct) / 100), pct, prevPct: Math.round(10 * (pct - 0.4 + wave(i, 2))) / 10,
+      lastYearPct: Math.round(10 * (pct - 10 + 15 * wave(i, 1))) / 10, avg10Pct: Math.round(10 * (pct - 5 + 8 * wave(i, 3))) / 10,
+      n: 3, weeks, weeksAvg: weeks.map((w, k) => Math.round(10 * (w - 3 + 4 * Math.sin(k / 7))) / 10),
+      list: [0, 1, 2].map((k) => ({ name: `Embalse ${b.name.split(' ')[0]} ${k + 1}`, cap: Math.round(c / (k + 2)), vol: Math.round((c / (k + 2)) * (pct / 100)), prev: Math.round((c / (k + 2)) * ((pct - 0.5) / 100)) }))
+    };
+  });
+  res.total = { cap, vol: Math.round(vol), pct: Math.round((1000 * vol) / cap) / 10, prevPct: 52.1, lastYearPct: 47.5, avg10Pct: 50.3 };
+  res.weekDates = weekDates;
+  res.date = weekDates[52];
+  const rain = { until: new Date(Math.floor(now / 3600000) * 3600000).toISOString(), hydroYearStart: '2026-10-01', basins: {} };
+  basins.forEach((b, i) => {
+    const serie = Array.from({ length: 30 }, (_, k) => Math.round(Math.max(0, 12 * Math.sin(k / 3 + i) - 4) * 10) / 10);
+    rain.basins[b.id] = { h24: serie[29], d7: Math.round(serie.slice(-7).reduce((a, x) => a + x, 0)), d30: Math.round(serie.reduce((a, x) => a + x, 0)), year: Math.round(serie.slice(-8).reduce((a, x) => a + x, 0)), cover: 0.97, serie };
+  });
+  return { updated: new Date(now).toISOString(), sources: {}, rain, reservoirs: res };
+}
+
 function json(obj) {
   return new Response(JSON.stringify(obj), { headers: { 'content-type': 'application/json' } });
 }
@@ -142,6 +173,7 @@ function install() {
   protocol.handle('https', async (req) => {
     const u = new URL(req.url);
     if (u.host === OPERA_HOST) return operaResponse(req, u);
+    if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/agua.json')) return json(aguaDemo());
     if (u.host === 'api.open-meteo.com') return json(forecast());
     if (u.host === 'geocoding-api.open-meteo.com') {
       return json({ results: [

@@ -198,6 +198,7 @@
 
     function updateAttribution() {
       const def = BASES[st.baseKey] || BASES.light;
+      if (st.extraAttr) { dom.attribution.innerHTML = [def.attr, st.extraAttr].join(' · '); return; }
       dom.attribution.innerHTML = [def.attr, RADAR_ATTR(st.t)].concat(st.lightningOn ? [LIGHTNING_ATTR] : []).join(' · ');
     }
 
@@ -514,6 +515,8 @@
       setBase, setFrames, setRadarOptions, setMotion, setLocations, renderLegend, setLightning,
       play, pause, toggle, step, goLatest, goTo,
       isPlaying: () => st.playing,
+      // Otra atribución en lugar de la del radar y los rayos (p. ej. el modo agua).
+      setExtraAttribution(html) { st.extraAttr = html || null; updateAttribution(); },
       focus(lat, lon, zoom) { map.setView([lat, lon], zoom || Math.max(map.getZoom(), 7)); },
       setView(center, zoom) { map.setView(center, zoom); },
       invalidate() { map.invalidateSize(); }

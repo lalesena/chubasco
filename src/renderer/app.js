@@ -19,6 +19,7 @@
 
   const darkMQ = window.matchMedia('(prefers-color-scheme: dark)');
   let mapApi = null;
+  let aguaApi = null;
 
   // ------------------------------------------------------------------
   // Utilidades
@@ -38,6 +39,7 @@
     S.t = I.make(I.resolveLang(S.settings.language, S.systemLocale));
     applyI18n();
     if (mapApi) { mapApi.setT(S.t); mapApi.renderLegend(S.settings); }
+    if (aguaApi) aguaApi.refresh();
   }
 
   function baseKey() {
@@ -651,6 +653,28 @@
     $('opt-future').addEventListener('change', (e) => updateSettings({ showFuture: e.target.checked }));
     $('opt-coverage').addEventListener('change', (e) => updateSettings({ showCoverage: e.target.checked }));
     $('opt-lightning').addEventListener('change', (e) => updateSettings({ showLightning: e.target.checked }));
+
+    // Agua en España: el panel lateral y el mapa pasan a las cuencas.
+    aguaApi = window.RA_AGUA.create({
+      map: mapApi.map, api,
+      dom: { panel: $('agua-panel'), legend: $('agua-legend') },
+      getT: () => S.t, getUnits: () => S.settings.units,
+      setAttribution: (html) => mapApi.setExtraAttribution(html)
+    });
+    $('agua-button').addEventListener('click', () => setAgua(!aguaApi.isOpen()));
+    $('agua-back').addEventListener('click', () => setAgua(false));
+  }
+
+  function setAgua(on) {
+    if (on) aguaApi.open(); else aguaApi.close();
+    $('app').classList.toggle('agua-mode', on);
+    $('side-scroll').hidden = on;
+    $('agua-panel').hidden = !on;
+    $('agua-title').hidden = !on;
+    $('loc-button').hidden = on;
+    $('agua-legend').hidden = !on;
+    $('agua-button').setAttribute('aria-pressed', String(on));
+    if (on) $('agua-panel').scrollTop = 0;
   }
 
   // ------------------------------------------------------------------

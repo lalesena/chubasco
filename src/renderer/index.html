@@ -15,12 +15,19 @@
       <div class="drag" aria-hidden="true"></div>
 
       <header class="side-head">
+        <div id="agua-title" class="agua-title" hidden>
+          <button id="agua-back" class="icon-btn" data-i18n-title="agua.back" title="Volver al radar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span data-i18n="agua.title">Agua en España</span>
+        </div>
         <button id="loc-button" class="loc-button" aria-haspopup="true" aria-expanded="false">
           <span id="loc-name" class="loc-name">—</span>
           <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <button id="embed-button" class="icon-btn" data-i18n-title="web.embed" title="Insertar en tu web" data-only="web">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6 3 10l4 4M13 6l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="agua-button" class="icon-btn" data-i18n-title="agua.button" title="Agua y embalses" aria-pressed="false">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.8c2.6 3.2 4.2 5.4 4.2 7.4a4.2 4.2 0 0 1-8.4 0c0-2 1.6-4.2 4.2-7.4Z"/><path d="M2.5 16.2c1.2 0 1.8-.8 3-.8s1.8.8 3 .8 1.8-.8 3-.8 1.8.8 3 .8 1.8-.8 3-.8"/></g></svg>
         </button>
         <button id="settings-button" class="icon-btn" data-i18n-title="ui.settings" title="Ajustes">
           <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 5.5h8.5M15.5 5.5H17M3 10h2.5M9.5 10H17M3 14.5h9M16 14.5h1"/><circle cx="13.5" cy="5.5" r="2"/><circle cx="7.5" cy="10" r="2"/><circle cx="14" cy="14.5" r="2"/></g></svg>
@@ -163,10 +170,13 @@
           <ol id="history" class="history"></ol>
         </section>
       </div>
+
+      <div id="agua-panel" class="side-scroll agua" hidden aria-live="polite"></div>
     </aside>
 
     <main id="map-wrap">
       <div id="map" tabindex="0"></div>
+      <div id="agua-legend" class="agua-legend" hidden></div>
       <div id="banner" class="banner" hidden>
         <span id="banner-text"></span>
         <button id="banner-action" class="link-btn"></button>
@@ -380,8 +390,10 @@
   <script src="../shared/i18n.js"></script>
   <script src="../shared/forecast.js"></script>
   <script src="../shared/describe.js"></script>
+  <script src="../shared/cuencas.js"></script>
   <script src="charts.js"></script>
   <script src="map.js"></script>
+  <script src="agua.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

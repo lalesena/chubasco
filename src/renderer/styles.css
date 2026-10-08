@@ -705,3 +705,68 @@ body.widget { background: transparent; overflow: hidden; }
 }
 
 .onboard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Agua en España: embalses y lluvia por cuenca */
+.agua-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin-left: -8px; font-size: 17px; font-weight: 620; font-stretch: 92%; }
+#agua-button[aria-pressed='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.agua-mode .leaflet-radar-pane, .agua-mode .leaflet-lightning-pane, .agua-mode .leaflet-overlay-pane,
+.agua-mode .timeline, .agua-mode .map-tools .tool-btn#layers-button,
+.agua-mode .echo-marker, .agua-mode .motion-label, .agua-mode .leaflet-labels-pane { display: none; }
+.agua-msg { padding: 24px 0; }
+.agua > section { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.agua > section:first-child { padding-top: 4px; }
+.agua h2 { font-size: 17px; font-weight: 640; }
+.agua h3 { margin: 16px 0 4px; font-size: 13px; font-weight: 640; font-stretch: 95%; }
+.agua-big { font-size: 46px; font-weight: 700; font-stretch: 78%; line-height: 1; letter-spacing: -0.01em; }
+.agua-big span { font-size: 24px; font-weight: 600; }
+.agua-line { margin: 6px 0 0; font-size: 14px; }
+.agua-deltas { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.agua-chart { display: block; width: 100%; height: 92px; margin-top: 10px; }
+.agua-chart.bars { height: 64px; }
+.agua-controls { display: grid; gap: 8px; }
+.seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); }
+.seg button { flex: 1; border: 0; background: none; padding: 5px 6px; border-radius: 4px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed='true'] { background: var(--accent); color: #fff; }
+.seg.small button { font-size: 12px; padding: 4px 4px; }
+.agua-list-head { display: grid; grid-template-columns: 1fr 92px 60px; gap: 6px; font-size: 11px; color: var(--faint); padding: 0 6px 4px 22px; }
+.agua-list-head span:not(:first-child) { text-align: right; }
+.agua-list, .agua-res { list-style: none; margin: 0; padding: 0; }
+.agua-row { display: grid; grid-template-columns: 10px 1fr 44px 42px 60px; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 6px; border-radius: var(--radius-s); text-align: left; font-size: 13.5px; }
+.agua-row:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.agua-row.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.agua-row .dot { width: 10px; height: 10px; border-radius: 3px; }
+.agua-row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agua-row .val, .agua-row .rain { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agua-row .rain { color: var(--muted); }
+.agua .bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 10%, transparent); overflow: hidden; }
+.agua .bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.agua-detail { background: color-mix(in srgb, var(--accent) 5%, transparent); margin: 0 -18px; padding: 14px 18px !important; }
+.agua-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agua-rain { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 0; }
+.agua-rain div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 6px; }
+.agua-rain dt { font-size: 11px; color: var(--muted); }
+.agua-rain dd { margin: 2px 0 0; font-size: 15px; font-weight: 620; font-variant-numeric: tabular-nums; }
+.agua-res li { display: grid; grid-template-columns: 1fr 44px 34px; grid-template-areas: 'name bar val' 'vol vol vol'; align-items: center; gap: 0 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.agua-res li:last-child { border-bottom: 0; }
+.agua-res .name { grid-area: name; }
+.agua-res .name small { color: var(--faint); font-size: 11px; }
+.agua-res .bar { grid-area: bar; }
+.agua-res .val { grid-area: val; text-align: right; font-variant-numeric: tabular-nums; }
+.agua-res .vol { grid-area: vol; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.agua-res em { font-style: normal; margin-left: 4px; }
+.agua-res em.up { color: var(--accent); }
+.agua-res em.down { color: var(--amber-ink); }
+.agua-sources { padding: 14px 0 0; font-size: 11.5px; color: var(--faint); }
+.agua-sources p { margin: 0 0 6px; }
+.leaflet-tooltip.agua-label { background: color-mix(in srgb, var(--surface) 82%, transparent); border: 0; border-radius: 4px; box-shadow: none; padding: 1px 5px; font: 680 12.5px var(--font); font-stretch: 90%; color: var(--ink); white-space: nowrap; }
+.leaflet-tooltip.agua-label::before { display: none; }
+.agua-legend { position: absolute; left: 12px; bottom: 26px; z-index: 900; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 8px 10px; font-size: 11px; color: var(--muted); }
+.agua-legend-title { color: var(--ink); font-weight: 620; margin-bottom: 4px; }
+.agua-legend-bar { display: flex; }
+.agua-legend-bar span { width: 30px; height: 9px; }
+.agua-legend-bar span:first-child { border-radius: 2px 0 0 2px; }
+.agua-legend-bar span:last-child { border-radius: 0 2px 2px 0; }
+.agua-legend-scale { display: flex; padding-left: 21px; }
+.agua-legend-scale span { width: 30px; font-variant-numeric: tabular-nums; }
+.agua-legend-scale .unit { width: auto; margin-left: -4px; }

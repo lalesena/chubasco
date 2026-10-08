@@ -14,7 +14,7 @@ const { Verifier, calibrateRadar } = require('./verify');
 const { LightningSource } = require('./lightning');
 const { sendPush, newTopic } = require('./push');
 const Commute = require('./commute');
-const { Updater } = require('./updates');
+const { Updater, repoInfo } = require('./updates');
 const P = require('../shared/palette');
 const { inQuietHours, quietEnds } = require('./alerts');
 const I18N = require('../shared/i18n');
@@ -812,6 +812,19 @@ function registerIpc() {
   ipcMain.handle('verify:get', (_e, id) => ({ loc: id ? verifier.stats(id) : null, all: verifier.stats(null) }));
 
   // Rayos en la vista del mapa, como puntos para dibujar iconos.
+  // Agua en España (embalses y lluvia por cuenca): lo calcula y publica la
+  // web cada hora (scripts/agua/datos.mjs); aquí solo se lee.
+  let agua = { at: 0, data: null };
+  ipcMain.handle('agua:get', async () => {
+    if (agua.data && Date.now() - agua.at < 15 * 60000) return agua.data;
+    const repo = repoInfo(require('../../package.json'));
+    if (!repo) throw new Error('Sin repositorio publicado');
+    const res = await net.fetch(`https://${repo.owner}.github.io/${repo.repo}/agua/agua.json`, { headers: { 'User-Agent': userAgent() }, signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    agua = { at: Date.now(), data: await res.json() };
+    return agua.data;
+  });
+
   // Teselas del mapa con OPERA: un byte por píxel (ver opera.js).
   ipcMain.handle('radar:tile', async (_e, q) => {
     try {

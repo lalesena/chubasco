@@ -21,6 +21,7 @@ App de escritorio para **macOS y Windows** que vigila el radar de lluvia en tus 
 | Mapas claro, oscuro y callejero | Incluidos (OpenFreeMap, sin clave), con las etiquetas del mapa por encima del radar |
 | Widget | **Widget de escritorio** (Mac y Windows) en tres tamaños, que se queda donde lo pongas, y **widget para insertar en cualquier web** con un `<iframe>` |
 | Web | **Versión web** con la misma interfaz y el mismo análisis, que funciona también en el móvil |
+| Agua en España | El botón de la gota muestra la **reserva de los embalses por cuenca hidrográfica** (con la semana anterior, hace un año, la media de 10 años y cada embalse) y la **lluvia caída por cuenca** en 24 h, 7 y 30 días y desde el 1 de octubre, estimada con el radar. El mapa colorea las cuencas por reserva o por lluvia |
 | Otros | Historial de avisos, eco más cercano y flecha de movimiento en el mapa, mm/h o in/h, km o mi, español e inglés, atajos de teclado, sin cuentas ni anuncios |
 
 Hay una limitación honesta. El radar mide cuánta agua hay, no de qué tipo: no distingue la nieve, el granizo ni la lluvia helada (el aviso de tormenta fuerte es una señal, no un detector de granizo; la nieve solo aparece en la previsión del modelo). Además, OPERA solo cubre Europa, y no incluye Italia: fuera de su cobertura no hay radar y la app lo dice («Sin radar en esta zona»). Ahí conviene activar «El modelo prevea lluvia en la próxima hora».
@@ -118,6 +119,12 @@ El plan gratuito de Workers admite 100 000 peticiones al día. Un visitante con 
 3. **Nowcast:** se desplaza el último fotograma según ese vector para saber qué intensidad habrá en tu punto dentro de 5, 10… 120 minutos. De ahí salen la hora de llegada y la de fin. El cálculo descuenta la antigüedad del fotograma.
 4. **Avisos:** un motor con memoria por ubicación decide qué avisar sin repetirse. Se rearma tras 20 min sin lluvia y cuenta fotogramas de radar distintos, no comprobaciones. Ignora episodios antiguos tras una suspensión y pausa los avisos si el radar tiene más de 35 min.
 5. **Modelo:** Open-Meteo aporta la precipitación cada 15 min y por horas, la temperatura y el viento.
+6. **Agua en España:** cada hora, GitHub Actions ejecuta `scripts/agua/datos.mjs` y publica `agua/agua.json` junto a la web; la app y la web solo lo leen.
+   - **Lluvia por cuenca:** suma la lluvia horaria que estima OPERA (producto ACRR, 2 km) en los píxeles de cada cuenca. Las últimas horas salen del GeoTIFF de 24 h (solo los mosaicos de la península); los días anteriores, del archivo de OPERA (HDF5). El resultado de cada hora y de cada día se guarda en `agua/estado.json`, así que cada ejecución solo descarga lo nuevo.
+   - **Embalses:** el Boletín Hidrológico de MITECO se publica los martes como una base de datos Access con todos los embalses desde 1988. Solo se descarga cuando cambia y se resume por cuenca.
+   - **Cuencas:** las demarcaciones hidrográficas de la península y Baleares, recortadas a tierra firme (`scripts/agua/cuencas.mjs`, que genera `src/shared/cuencas.js`). Las cuencas internas del País Vasco van con el Cantábrico Oriental, que es su demarcación.
+
+   GitHub desactiva las tareas programadas de un repositorio público tras 60 días sin cambios. Si deja de actualizarse, basta con reactivarla en *Actions → Web (GitHub Pages)*.
 
 ### Precisión
 
@@ -152,6 +159,7 @@ src/shared/    paleta, textos es/en, previsión combinada, frases de estado y le
 web/           versión web: motor en un Web Worker, puente con la interfaz, generador de la web
   build.mjs    genera web/dist a partir de la interfaz de la app
 proxy/         intermediario de Cloudflare para leer OPERA desde la web
+scripts/agua/  datos del agua: cuencas (una vez) y embalses y lluvia (cada hora, en GitHub Actions)
 test/          pruebas con datos sintéticos
 ```
 
@@ -160,6 +168,9 @@ test/          pruebas con datos sintéticos
 - **Radar:** [EUMETNET OPERA](https://www.eumetnet.eu/), compuesto de reflectividad máxima, del [almacén de datos abiertos de EUMETNET](https://s3.waw3-1.cloudferro.com/openradar-24h/). Licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): se puede publicar y compartir, también con fines comerciales, citando la fuente y la licencia e indicando que los datos están transformados. El mapa lo indica así: «Radar EUMETNET OPERA (CC BY 4.0, datos procesados)».
 - **Previsión y búsqueda:** [Open-Meteo](https://open-meteo.com/), gratis para uso no comercial.
 - **Nombres al hacer clic en el mapa:** Nominatim de OpenStreetMap.
+- **Embalses:** [MITECO, Boletín Hidrológico semanal](https://www.miteco.gob.es/es/agua/temas/evaluacion-de-los-recursos-hidricos/boletin-hidrologico.html) (base de datos BD-Embalses). Su aviso legal permite reutilizar la información sin autorización expresa citando la fuente (Ley 37/2007). Son datos sin validar de los embalses peninsulares de más de 5 hm³.
+- **Límites de las cuencas:** Agencia Europea de Medio Ambiente, WISE WFD 2022 (CC BY 4.0), recortados con la costa de [Natural Earth](https://www.naturalearthdata.com/) (dominio público).
+- **Lluvia por cuenca:** EUMETNET OPERA, acumulación horaria (CC BY 4.0). Es una estimación del radar y puede diferir de lo que miden los pluviómetros.
 - **Rayos:** [EUMETSAT](https://www.eumetsat.int/), Meteosat-12 Lightning Imager (capa «Accumulated Flash Area» de EUMETView). Datos libres bajo CC BY 4.0: «Contains modified EUMETSAT Meteosat data». Llegan con unos 15 min de retraso y cubren Europa, África y Oriente Medio. No se usa Blitzortung, porque sus condiciones prohíben usar sus datos en sistemas de aviso de tormentas.
 - **Avisos en el móvil (opcional):** [ntfy.sh](https://ntfy.sh/). Los avisos pasan por su servidor público con un tema aleatorio; quien conozca el nombre del tema puede leerlos.
 - **Ubicación aproximada por IP:** ipwho.is. Solo se usa si pulsas el botón, o si «Aquí» no consigue la ubicación del sistema.
