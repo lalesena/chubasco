@@ -17,6 +17,9 @@
  *
  * `ratesFromAccumulated` convierte eso en la media (mm/h) del tramo que acaba
  * en cada hora publicada.
+ *
+ * Además, `pickOrog` saca la altura del terreno del modelo (ver `encodeOrog` en
+ * src/shared/metgrid.js), que cada uno da a su manera.
  */
 import { extract } from './grib2.mjs';
 
@@ -87,4 +90,29 @@ export function ratesFromAccumulated(steps, n) {
     prev = { h: s.h, a };
   }
   return out;
+}
+
+/**
+ * Altura del terreno del modelo (m) de los mensajes de su fichero de orografía:
+ *  - ECMWF: el geopotencial en superficie `z` (parámetro 3/4, en m²/s²), a +0 h
+ *    de cualquier pasada; se divide por g (9,80665) para tener metros.
+ *  - ICON-EU: HSURF, la altura de la superficie sobre el nivel del mar (3/6, en m),
+ *    un fichero «invariante en el tiempo» por pasada.
+ *  - GFS: HGT en superficie (3/5, en gpm ≈ m), de la hora 0 con el filtro de NOMADS.
+ */
+export const OROG_SRC = {
+  ecmwf: { cat: 3, num: 4, k: 1 / 9.80665 },
+  'icon-eu': { cat: 3, num: 6, k: 1 },
+  gfs: { cat: 3, num: 5, k: 1 }
+};
+export function pickOrog(msgs, model, grid) {
+  const p = OROG_SRC[model];
+  const m = msgs.find((x) => x.discipline === 0 && x.cat === p.cat && x.num === p.num && x.surface === 1);
+  if (!m) throw new Error('falta la altura del terreno');
+  const h = extract(m, grid).map((v) => v * p.k);
+  let lo = Infinity, hi = -Infinity;
+  for (const v of h) { if (!Number.isFinite(v)) throw new Error('altura del terreno con valores no válidos'); if (v < lo) lo = v; if (v > hi) hi = v; }
+  // Comprobación grosso modo: en cualquiera de las tres zonas hay mar y montañas, y nada fuera de la Tierra.
+  if (lo < -600 || hi > 9000 || hi - lo < 300) throw new Error(`altura del terreno no creíble (${Math.round(lo)} a ${Math.round(hi)} m)`);
+  return h;
 }

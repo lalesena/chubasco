@@ -13,6 +13,11 @@
  *    acaba en esa hora y la temperatura a 2 m (formato en src/shared/metgrid.js;
  *    la lluvia sale de la precipitación acumulada del modelo, ver met.mjs). Va
  *    aparte para que los fNNN.gz no cambien.
+ *  - viento/<modelo>/orog.gz: la altura del terreno del modelo en su rejilla
+ *    (formato en src/shared/metgrid.js), para corregir la temperatura por la
+ *    altitud de un punto (Otea). No cambia con la pasada: se copia la ya
+ *    publicada y solo se pide a la fuente si falta. Es un añadido: si no se
+ *    consigue, el resto se publica igual y `orog` no sale en index.json.
  *
  * Modelos (los tres permiten reutilizar los datos):
  *  - ecmwf: ECMWF IFS 0,25° (CC BY 4.0), de data.ecmwf.int: el índice de cada
@@ -36,7 +41,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { parseGrib2, extract } from './grib2.mjs';
-import { pickMet, ratesFromAccumulated } from './met.mjs';
+import { pickMet, pickOrog, ratesFromAccumulated } from './met.mjs';
 
 const require = createRequire(import.meta.url);
 const W = require('../../src/shared/windgrid.js');
@@ -57,6 +62,7 @@ const runTime = (id) => Date.UTC(+id.slice(0, 4), +id.slice(4, 6) - 1, +id.slice
 const stepFile = (run, h) => `${run}/f${pad(h, 3)}.gz`;
 const metFile = (run, h) => `${run}/m${pad(h, 3)}.gz`;
 const sameMeta = (meta) => !!meta && JSON.stringify(meta) === JSON.stringify(M.META);
+const sameOrog = (meta) => !!meta && JSON.stringify(meta) === JSON.stringify(M.OROG);
 
 async function fetchOk(url, opts = {}, tries = 3) {
   for (let i = 1; ; i++) {
@@ -232,6 +238,50 @@ const SOURCES = {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Altura del terreno de cada modelo (una vez; ver met.mjs/pickOrog). Devuelve los mensajes GRIB2 del fichero.
+
+const OROG = {
+  // HGT en superficie de la hora 0, con el mismo filtro de NOMADS que el resto.
+  async gfs(run) {
+    const day = run.slice(0, 8), hh = run.slice(8, 10), d = W.DOMAIN;
+    const q = new URLSearchParams({ dir: `/gfs.${day}/${hh}/atmos`, file: `gfs.t${hh}z.pgrb2.0p25.f000`, var_HGT: 'on', lev_surface: 'on' });
+    for (const [k, v] of Object.entries({ subregion: '', toplat: d.north, leftlon: d.west, rightlon: d.east, bottomlat: d.south })) q.set(k, String(v));
+    await nomads();
+    const buf = await bytesOf(`https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?${q}`);
+    if (!buf) throw new Error('GFS: no está la hora 0');
+    return parseGrib2(buf);
+  },
+  // El geopotencial en superficie (z) viene en el .grib2 de la hora 0, y el índice dice dónde.
+  async ecmwf(run) {
+    const day = run.slice(0, 8), hh = run.slice(8, 10);
+    const base = `https://data.ecmwf.int/forecasts/${day}/${hh}z/ifs/0p25/oper/${day}${hh}0000-0h-oper-fc`;
+    await ecmwf();
+    const idx = await bytesOf(`${base}.index`);
+    if (!idx) throw new Error('ECMWF: no está la hora 0');
+    const z = new TextDecoder().decode(idx).split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)).find((e) => e.levtype === 'sfc' && e.param === 'z');
+    if (!z) throw new Error('ECMWF: falta z en la hora 0');
+    await ecmwf();
+    const b = await bytesOf(`${base}.grib2`, { headers: { Range: `bytes=${z._offset}-${z._offset + z._length - 1}` } });
+    if (!b || b.length !== z._length) throw new Error('ECMWF: z incompleto');
+    return parseGrib2(b);
+  },
+  // HSURF es un fichero «invariante en el tiempo» por carpeta de pasada, y el DWD lo renueva poco: se lee el nombre del listado.
+  async 'icon-eu'(run) {
+    const dir = `https://opendata.dwd.de/weather/nwp/icon-eu/grib/${run.slice(8, 10)}/hsurf/`;
+    await dwd();
+    const list = await bytesOf(dir);
+    const name = list && [...new TextDecoder().decode(list).matchAll(/href="([^"]*_HSURF\.grib2\.bz2)"/g)].map((m) => m[1]).sort().pop();
+    if (!name) throw new Error('ICON-EU: no está HSURF');
+    await dwd();
+    const bz = await bytesOf(dir + name);
+    if (!bz) throw new Error('ICON-EU: no está HSURF');
+    const out = spawnSync('bzip2', ['-dc'], { input: bz, maxBuffer: 64 * 1024 * 1024 });
+    if (out.status !== 0) throw new Error(`bzip2: ${out.error ? out.error.message : String(out.stderr).trim()}`);
+    return parseGrib2(out.stdout);
+  }
+};
+
 /** Recoge las horas pedidas de una pasada, con varias peticiones a la vez, en `steps` (hora → resultado). */
 async function collect(id, run, hours, want, steps) {
   const src = SOURCES[id], grid = gridOf(id);
@@ -320,12 +370,31 @@ async function fromPrev(id, index) {
 
 // ---------------------------------------------------------------------------
 
+/** La altura del terreno ya publicada (gz) si sirve; si no, se pide a la fuente. null si no se consigue (es un añadido). */
+async function orogOf(id, run, grid, published) {
+  if (published && published.orog === 'orog.gz' && sameOrog(published.orogMeta)) {
+    const gz = await readPrev(`${id}/orog.gz`);
+    if (gz) {
+      try { M.decodeOrog(gunzipSync(gz), grid); log(`${id}: altura del terreno copiada de lo publicado`); return gz; } catch (e) { log(`${id}: la altura del terreno publicada no vale (${e.message})`); }
+    }
+  }
+  try {
+    const gz = gzipSync(M.encodeOrog(pickOrog(await OROG[id](run), id, grid), grid), { level: 9 });
+    log(`${id}: altura del terreno pedida a la fuente`);
+    return gz;
+  } catch (e) {
+    log(`${id}: sin altura del terreno (${e.message})`);
+    return null;
+  }
+}
+
 async function model(id) {
   const grid = gridOf(id);
   const t0 = Date.now();
   let prev = null;
   try { prev = JSON.parse(await readPrev(`${id}/index.json`)); } catch (e) { prev = null; }
   if (prev && (prev.v !== 1 || prev.model !== id || JSON.stringify(prev.grid) !== JSON.stringify(grid))) prev = null; // otro formato o rejilla
+  const published = prev;
   log(`${id}: publicado ${prev ? prev.run : 'nada'}`);
 
   // Pasadas candidatas, de la más reciente a la de hace un día.
@@ -353,6 +422,7 @@ async function model(id) {
     try { steps = await addMet(id, run, steps); log(`${id} ${run}: lluvia y temperatura de ${steps.filter(([, s]) => s.met).length} horas`); } catch (e) { log(`${id} ${run}: sin lluvia ni temperatura (${e.message})`); }
   }
 
+  const orog = await orogOf(id, run, grid, published);
   const dir = path.join(OUT, id);
   await fs.rm(dir, { recursive: true, force: true });
   await fs.mkdir(path.join(dir, run), { recursive: true });
@@ -373,11 +443,12 @@ async function model(id) {
     }
     list.push(e);
   }
+  if (orog) await fs.writeFile(path.join(dir, 'orog.gz'), orog);
   const withMet = list.some((e) => e.m);
-  const index = { v: 1, model: id, run, runTime: rt, generated: Date.now(), grid, scale: W.SCALE, ...(withMet ? { met: M.META } : {}), steps: list };
+  const index = { v: 1, model: id, run, runTime: rt, generated: Date.now(), grid, scale: W.SCALE, ...(withMet ? { met: M.META } : {}), ...(orog ? { orog: 'orog.gz', orogMeta: M.OROG } : {}), steps: list };
   await fs.writeFile(path.join(dir, 'index.json'), JSON.stringify(index));
   const mb = (downloaded.get(HOSTS[id]) || 0) / 1e6;
-  log(`${id}: ${run}, ${list.length} horas, viento ${(bytes / 1e6).toFixed(1)} MB y lluvia y temperatura ${(metBytes / 1e6).toFixed(1)} MB (${list.filter((e) => e.m).length} horas); descargados ${mb.toFixed(0)} MB en ${Math.round((Date.now() - t0) / 1000)} s`);
+  log(`${id}: ${run}, ${list.length} horas, ${orog ? `terreno ${(orog.length / 1e3).toFixed(0)} kB, ` : 'sin altura del terreno, '}viento ${(bytes / 1e6).toFixed(1)} MB y lluvia y temperatura ${(metBytes / 1e6).toFixed(1)} MB (${list.filter((e) => e.m).length} horas); descargados ${mb.toFixed(0)} MB en ${Math.round((Date.now() - t0) / 1000)} s`);
 }
 
 // Cada modelo por su cuenta: si uno falla, los demás se publican igual.

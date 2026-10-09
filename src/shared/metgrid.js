@@ -23,6 +23,19 @@
  * `met` de index.json ({ v: 1, rainK, tempMin, tempStep }); si falta, esa
  * pasada no tiene lluvia ni temperatura.
  *
+ * Altura del terreno del modelo (orografía): la temperatura a 2 m del modelo
+ * vale a la altura de SU terreno (una celda de 25 km alisa las montañas), y
+ * para corregirla en un punto más alto o más bajo hace falta saberla. Se
+ * publica una vez por modelo, aparte de las horas, porque no cambia con la
+ * pasada: <modelo>/orog.gz, en la misma rejilla. Son rows × cols valores de
+ * 16 bits con signo en metros / `step` (5 m por unidad: de −163 a +163 km de
+ * sobra, y el mar es 0). Igual que lo demás, cada fila va en diferencias con el
+ * valor de su izquierda (módulo 65536), y esas diferencias se guardan en dos
+ * planos de bytes seguidos, primero los n bajos y luego los n altos (así comprime
+ * mejor), y el fichero entero con gzip. Los parámetros van en `orogMeta` de
+ * index.json ({ v: 1, step }) y el nombre del fichero en `orog`; si faltan, esa
+ * pasada no trae la altura del terreno (los clientes antiguos los ignoran).
+ *
  * Módulo UMD: require() en Node y window.RA_METGRID en la interfaz.
  */
 (function (root, factory) {
@@ -33,6 +46,8 @@
 
   const META = { v: 1, rainK: 25, tempMin: -60, tempStep: 0.5 };
   const TEMP_Q_MAX = 240;
+  // Altura del terreno del modelo: metros por unidad de los valores de 16 bits.
+  const OROG = { v: 1, step: 5 };
   // Por debajo de esto no se considera que llueva: es el mismo umbral del radar (7 dBZ ≈ 0,1 mm/h).
   const RAIN_MIN = 0.1;
 
@@ -83,6 +98,42 @@
     const rain = field(0, (q) => (q / meta.rainK) ** 2);
     const temp = field(1, (q) => meta.tempMin + q * meta.tempStep);
     return { rain, temp };
+  }
+
+  /** Altura del terreno (m, Float32Array de rows × cols, de norte a sur) en el formato de orog.gz (sin comprimir). */
+  function encodeOrog(height, grid, meta = OROG) {
+    const n = grid.rows * grid.cols;
+    const out = new Uint8Array(2 * n);
+    for (let r = 0; r < grid.rows; r++) {
+      let prev = 0;
+      for (let c = 0; c < grid.cols; c++) {
+        const i = r * grid.cols + c;
+        const x = height[i];
+        // Sin dato, la del punto de su izquierda (o 0 m, el mar, al principio de la fila).
+        const q = Number.isFinite(x) ? Math.max(-32768, Math.min(32767, Math.round(x / meta.step))) : c ? prev : 0;
+        const d = (q - prev) & 0xffff;
+        out[i] = d & 255;
+        out[n + i] = d >> 8;
+        prev = q;
+      }
+    }
+    return out;
+  }
+
+  /** Lo contrario: altura del terreno (m) como Float32Array de rows × cols. */
+  function decodeOrog(bytes, grid, meta = OROG) {
+    const n = grid.rows * grid.cols;
+    if (!bytes || bytes.length !== 2 * n) throw new Error(`Rejilla de altura del terreno con ${bytes ? bytes.length : 0} bytes (se esperaban ${2 * n})`);
+    const out = new Float32Array(n);
+    for (let r = 0; r < grid.rows; r++) {
+      let q = 0;
+      for (let c = 0; c < grid.cols; c++) {
+        const i = r * grid.cols + c;
+        q = (q + (bytes[n + i] << 8 | bytes[i])) & 0xffff;
+        out[i] = (q > 32767 ? q - 65536 : q) * meta.step;
+      }
+    }
+    return out;
   }
 
   /** Lluvia (mm/h) y temperatura (°C) en un punto, o null si cae fuera de la rejilla. */
@@ -157,5 +208,5 @@
   const tempIndex = (c, meta = META) => Math.max(0, Math.min(TEMP_Q_MAX, Math.round((c - meta.tempMin) / meta.tempStep)));
   const tempCss = (c) => `rgb(${tempColor(c).join(',')})`;
 
-  return { META, RAIN_MIN, TEMP_Q_MAX, encode, decode, sample, rainColorTable, rainIndex, rainCss, rainRgbaCss, TEMP_ANCHORS, tempColor, tempColorTable, tempIndex, tempCss };
+  return { META, RAIN_MIN, TEMP_Q_MAX, OROG, encode, decode, encodeOrog, decodeOrog, sample, rainColorTable, rainIndex, rainCss, rainRgbaCss, TEMP_ANCHORS, tempColor, tempColorTable, tempIndex, tempCss };
 });

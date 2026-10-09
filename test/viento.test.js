@@ -335,7 +335,10 @@ test('viento: el generador copia la pasada ya publicada si NOAA no tiene otra', 
     fs.writeFileSync(path.join(prev, 'gfs', m), zlib.gzipSync(M.encode({ rain: new Float32Array(n).fill(h * 0.5), temp: new Float32Array(n).fill(10 + h) }, grid)));
     steps.push(h ? { h, t: t0 + h * 3600000, f, m, span: 1 } : { h, t: t0, f, m });
   }
-  fs.writeFileSync(path.join(prev, 'gfs', 'index.json'), JSON.stringify({ v: 1, model: 'gfs', run, runTime: t0, generated: 0, grid, scale: W.SCALE, met: M.META, steps }));
+  // Con la altura del terreno ya publicada (si no, el generador la pediría a NOMADS): se copia tal cual.
+  const orogGz = zlib.gzipSync(M.encodeOrog(new Float32Array(n).fill(640), grid));
+  fs.writeFileSync(path.join(prev, 'gfs', 'orog.gz'), orogGz);
+  fs.writeFileSync(path.join(prev, 'gfs', 'index.json'), JSON.stringify({ v: 1, model: 'gfs', run, runTime: t0, generated: 0, grid, scale: W.SCALE, met: M.META, orog: 'orog.gz', orogMeta: M.OROG, steps }));
   const out = path.join(tmp, 'out');
   execFileSync(process.execPath, [path.join(__dirname, '../scripts/viento/datos.mjs'), out, prev, 'gfs'], { stdio: 'pipe' });
   const idx = JSON.parse(fs.readFileSync(path.join(out, 'gfs', 'index.json'), 'utf8'));
@@ -351,6 +354,10 @@ test('viento: el generador copia la pasada ya publicada si NOAA no tiene otra', 
   assert.equal(idx.v, 1);
   const met = M.decode(zlib.gunzipSync(fs.readFileSync(path.join(out, 'gfs', steps[2].m))), idx.grid);
   assert.ok(Math.abs(met.rain[7] - 1) < 0.05 && met.temp[7] === 12);
+  // La altura del terreno no cambia con la pasada: se copia el mismo fichero y se referencia desde el índice.
+  assert.equal(idx.orog, 'orog.gz');
+  assert.deepEqual(idx.orogMeta, M.OROG);
+  assert.ok(fs.readFileSync(path.join(out, 'gfs', 'orog.gz')).equals(orogGz));
 });
 
 // ---------------------------------------------------------------------------
@@ -550,4 +557,64 @@ test('lluvia: los colores de la lluvia son los del radar y la temperatura tiene 
   assert.equal(M.tempIndex(0.2), 120);
   assert.equal(M.tempIndex(100), M.TEMP_Q_MAX);
   assert.ok(wg !== undefined && cg !== undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Altura del terreno del modelo (orog.gz): corrige la temperatura por la altitud en Otea
+
+test('orografía: orog.gz conserva la altura con pasos de 5 m, con signo y sin dato', () => {
+  const grid = { west: -10, north: 50, step: 1, cols: 5, rows: 3 };
+  const n = grid.rows * grid.cols;
+  const h = new Float32Array(n);
+  Object.assign(h, { 0: 0, 1: 2.4, 2: 2.6, 3: 647, 4: 2547.5, 5: -414, 6: -3, 7: 8848, 8: 9e9, 9: NaN, 10: 1000, 11: 1000, 12: -9e9, 13: 0, 14: 17.4 });
+  const bytes = M.encodeOrog(h, grid);
+  assert.equal(bytes.length, 2 * n, 'dos bytes por punto');
+  const d = M.decodeOrog(bytes, grid);
+  const want = [0, 0, 5, 645, 2550, -415, -5, 8850, 163835, 163835, 1000, 1000, -163840, 0, 15];
+  assert.deepEqual(Array.from(d), want);
+  for (let i = 0; i < n; i++) if (Math.abs(h[i]) < 9000) assert.ok(Math.abs(d[i] - h[i]) <= 2.5 + 1e-4, `punto ${i}`);
+  assert.deepEqual(M.OROG, { v: 1, step: 5 });
+  // Sin dato, la del punto de su izquierda (y 0 m si es el primero de la fila).
+  const nan = M.decodeOrog(M.encodeOrog(Float32Array.from([NaN, 500, NaN, NaN, 20, NaN, 30, 40, NaN, 7]), { west: 0, north: 0, step: 1, cols: 5, rows: 2 }), { west: 0, north: 0, step: 1, cols: 5, rows: 2 });
+  assert.deepEqual(Array.from(nan), [0, 500, 500, 500, 20, 0, 30, 40, 40, 5]);
+  // Otro tamaño o un fichero sin descomprimir no se aceptan como si fueran datos.
+  assert.throws(() => M.decodeOrog(bytes.subarray(1), grid), /bytes/);
+  assert.throws(() => M.decodeOrog(null, grid), /bytes/);
+  // Es un campo suave y entero en 16 bits: con diferencias por filas y gzip ocupa muy poco.
+  const big = W.gridOf();
+  const rel = new Float32Array(big.rows * big.cols);
+  for (let r = 0; r < big.rows; r++) for (let c = 0; c < big.cols; c++) rel[r * big.cols + c] = Math.max(0, 1500 * Math.sin(r / 9) * Math.cos(c / 7));
+  assert.ok(zlib.gzipSync(M.encodeOrog(rel, big), { level: 9 }).length < big.rows * big.cols / 2, 'comprime a menos de medio byte por punto');
+});
+
+test('orografía: cada modelo da la altura del terreno a su manera y se pasa a metros', async () => {
+  const { parseGrib2 } = await grib();
+  const { pickOrog, OROG_SRC } = await metmod();
+  // GFS (recorte real, HGT en superficie, en gpm): 40–41 N, 5–3 O, entre la Sierra de Guadarrama y Madrid.
+  const msgs = parseGrib2(fs.readFileSync(path.join(__dirname, 'fixtures/viento/gfs-orografia.grib2')));
+  assert.deepEqual(msgs.map((m) => [m.discipline, m.cat, m.num, m.surface]), [[0, 3, 5, 1]]);
+  const grid = { west: -5, north: 41, step: 0.25, cols: 9, rows: 5 };
+  const h = pickOrog(msgs, 'gfs', grid);
+  assert.equal(h.length, 45);
+  // Del norte al sur y del oeste al este, como las demás rejillas: 40,75 N 4 O es la Sierra de Guadarrama (1318 m en el
+  // modelo), 40,5 N 5 O las faldas de Gredos (1435 m) y 40 N 5 O el valle del Tiétar (404 m).
+  const at = (lat, lon) => h[Math.round((grid.north - lat) / grid.step) * grid.cols + Math.round((lon - grid.west) / grid.step)];
+  assert.ok(Math.abs(at(40.75, -4) - 1318) < 1 && Math.abs(at(40.5, -5) - 1435) < 1 && Math.abs(at(40, -5) - 404) < 1);
+  assert.ok(Math.min(...h) >= 400 && Math.max(...h) <= 1500, 'metros, no otra unidad');
+  // ECMWF: geopotencial en superficie en m²/s², hay que dividir por g. ICON-EU: HSURF en m. Mensajes ya leídos, a mano.
+  const fake = (cat, num, k, g = { ni: 4, nj: 3, la1: 42, lo1: -4, di: 1, dj: 1, scan: 0 }) => ({
+    discipline: 0, cat, num, surface: 1, grid: g, values: Float32Array.from({ length: g.ni * g.nj }, (_, i) => (i === 5 ? 1500 : i === 0 ? -50 : 100 + i * 30) * k)
+  });
+  const g4 = { west: -4, north: 42, step: 1, cols: 4, rows: 3 };
+  const z = pickOrog([fake(3, 5, 1), fake(3, 4, 9.80665)], 'ecmwf', g4);
+  assert.ok(Math.abs(z[5] - 1500) < 1e-2 && Math.abs(z[0] + 50) < 1e-2 && Math.abs(z[1] - 130) < 1e-2);
+  const hs = pickOrog([fake(3, 4, 9.80665), fake(3, 6, 1)], 'icon-eu', g4);
+  assert.ok(Math.abs(hs[5] - 1500) < 1e-2);
+  assert.equal(OROG_SRC.ecmwf.k, 1 / 9.80665);
+  // Que falte, o que no sea creíble, es un error y no un campo equivocado.
+  assert.throws(() => pickOrog([fake(3, 5, 1)], 'ecmwf', g4), /falta la altura/);
+  assert.throws(() => pickOrog([{ ...fake(3, 4, 1), surface: 103 }], 'ecmwf', g4), /falta la altura/);
+  assert.throws(() => pickOrog([fake(3, 4, 1)], 'ecmwf', g4), /no creíble/, 'el geopotencial sin dividir por g');
+  assert.throws(() => pickOrog([{ ...fake(3, 6, 1), values: new Float32Array(12) }], 'icon-eu', g4), /no creíble/, 'todo plano');
+  assert.throws(() => pickOrog([{ ...fake(3, 6, 1), values: new Float32Array(12).fill(NaN) }], 'icon-eu', g4), /no válidos/);
 });
