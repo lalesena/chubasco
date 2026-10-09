@@ -41,6 +41,10 @@ jobs:
         continue-on-error: true
         env:
           AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+          # Histórico de los pluviómetros: más tramos por ejecución, porque el horario de
+          # GitHub lanza la tarea cada pocas horas y no cada hora.
+          HIST_CHUNKS: '60'
+          HIST_BUDGET_S: '600'
         run: |
           SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
           node --max-old-space-size=6144 scripts/agua/datos.mjs web/dist/agua "$SITE/agua"
