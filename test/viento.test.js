@@ -9,6 +9,8 @@ const zlib = require('zlib');
 const { pathToFileURL } = require('url');
 
 const W = require('../src/shared/windgrid');
+const M = require('../src/shared/metgrid');
+const P = require('../src/shared/palette');
 const grib = () => import(pathToFileURL(path.join(__dirname, '../scripts/viento/grib2.mjs')).href);
 // Recorte real de GFS (pasada del 8-10-2026 a las 12 UTC, +18 h) alrededor de Madrid: 40–41 N, 4,5–3 O.
 const FIXTURE = path.join(__dirname, 'fixtures/viento/gfs-madrid.grib2');
@@ -327,11 +329,13 @@ test('viento: el generador copia la pasada ya publicada si NOAA no tiene otra', 
   const steps = [];
   for (const h of [0, 1, 2]) {
     const u = new Float32Array(n).fill(h + 1), v = new Float32Array(n).fill(-2), gust = new Float32Array(n).fill(9);
-    const f = `${run}/f${String(h).padStart(3, '0')}.gz`;
+    const f = `${run}/f${String(h).padStart(3, '0')}.gz`, m = `${run}/m${String(h).padStart(3, '0')}.gz`;
     fs.writeFileSync(path.join(prev, 'gfs', f), zlib.gzipSync(W.encode({ u, v, gust }, grid)));
-    steps.push({ h, t: t0 + h * 3600000, f });
+    // Con la lluvia y la temperatura ya publicadas (si no, el generador las pediría a NOMADS).
+    fs.writeFileSync(path.join(prev, 'gfs', m), zlib.gzipSync(M.encode({ rain: new Float32Array(n).fill(h * 0.5), temp: new Float32Array(n).fill(10 + h) }, grid)));
+    steps.push(h ? { h, t: t0 + h * 3600000, f, m, span: 1 } : { h, t: t0, f, m });
   }
-  fs.writeFileSync(path.join(prev, 'gfs', 'index.json'), JSON.stringify({ v: 1, model: 'gfs', run, runTime: t0, generated: 0, grid, scale: W.SCALE, steps }));
+  fs.writeFileSync(path.join(prev, 'gfs', 'index.json'), JSON.stringify({ v: 1, model: 'gfs', run, runTime: t0, generated: 0, grid, scale: W.SCALE, met: M.META, steps }));
   const out = path.join(tmp, 'out');
   execFileSync(process.execPath, [path.join(__dirname, '../scripts/viento/datos.mjs'), out, prev, 'gfs'], { stdio: 'pipe' });
   const idx = JSON.parse(fs.readFileSync(path.join(out, 'gfs', 'index.json'), 'utf8'));
@@ -340,4 +344,210 @@ test('viento: el generador copia la pasada ya publicada si NOAA no tiene otra', 
   const back = W.decode(zlib.gunzipSync(fs.readFileSync(path.join(out, 'gfs', steps[2].f))), idx.grid);
   assert.equal(back.u[123], 3);
   assert.equal(back.v[123], -2);
+  // La lluvia y la temperatura se copian con su duración, y el índice sigue siendo el de siempre para las versiones antiguas.
+  assert.deepEqual(idx.steps.map((s) => s.m), steps.map((s) => s.m));
+  assert.deepEqual(idx.steps.map((s) => s.span), [undefined, 1, 1]);
+  assert.deepEqual(idx.met, M.META);
+  assert.equal(idx.v, 1);
+  const met = M.decode(zlib.gunzipSync(fs.readFileSync(path.join(out, 'gfs', steps[2].m))), idx.grid);
+  assert.ok(Math.abs(met.rain[7] - 1) < 0.05 && met.temp[7] === 12);
+});
+
+// ---------------------------------------------------------------------------
+// Lluvia y temperatura del modo «Previsión»
+
+const metmod = () => import(pathToFileURL(path.join(__dirname, '../scripts/viento/met.mjs')).href);
+// Recortes reales de GFS (pasada del 9-10-2026 a las 00 UTC) sobre el Adriático sur, con lluvia: 40,5–41,5 N, 18,5–20 E.
+const RAIN = (h) => path.join(__dirname, `fixtures/viento/gfs-lluvia-f${String(h).padStart(3, '0')}.grib2`);
+const RAIN_GRID = { west: 18.5, north: 41.5, step: 0.25, cols: 7, rows: 5 };
+const RUN_T = Date.UTC(2026, 9, 9, 0);
+const validAt = (h) => (m) => assert.ok(Math.abs(m.hour - h) < 1e-6 && m.refTime === RUN_T, `hora ${m.hour}`);
+
+test('lluvia: el lector lee la plantilla 4.8 (el principio del intervalo y su duración) del recorte de GFS', async () => {
+  const { parseGrib2 } = await grib();
+  // +12 h: dos mensajes de lluvia, el del tramo de 6 h en curso (6–12) y el acumulado desde la pasada (0–12).
+  const msgs = parseGrib2(fs.readFileSync(RAIN(12)));
+  const rain = msgs.filter((m) => m.cat === 1 && m.num === 8);
+  assert.deepEqual(rain.map((m) => [m.discipline, m.surface, m.stat, m.start, m.span, m.hour]).sort((a, b) => a[3] - b[3]),
+    [[0, 1, 1, 0, 12, 12], [0, 1, 1, 6, 6, 12]], 'la «hora de previsión» es el principio; la hora válida, el final');
+  // Con la temperatura: la del suelo (nivel 1) y la de 2 m (nivel 103), que es la que se usa.
+  const temps = msgs.filter((m) => m.cat === 0 && m.num === 0);
+  assert.deepEqual(temps.map((m) => [m.surface, m.level, m.hour]).sort(), [[1, 0, 12], [103, 2, 12]]);
+  assert.equal(temps[0].start, undefined, 'la temperatura es de un instante');
+  for (const m of msgs) assert.equal(new Date(m.refTime).toISOString(), '2026-10-09T00:00:00.000Z');
+  // +7 h: el tramo 6–7 y el 0–7. +6 h: el 0–6 (dos veces, es el mismo).
+  const at7 = parseGrib2(fs.readFileSync(RAIN(7))).filter((m) => m.cat === 1);
+  assert.deepEqual(at7.map((m) => [m.start, m.span, m.hour]).sort((a, b) => a[0] - b[0]), [[0, 7, 7], [6, 1, 7]]);
+  assert.deepEqual(parseGrib2(fs.readFileSync(RAIN(6))).filter((m) => m.cat === 1).map((m) => [m.start, m.span, m.hour]), [[0, 6, 6], [0, 6, 6]]);
+  // Los acumulados cuadran: 0–12 = 0–6 + 6–12 (y lo mismo a +7 h), salvo el redondeo del empaquetado de NOAA (1/16 mm).
+  const a6 = parseGrib2(fs.readFileSync(RAIN(6))).find((m) => m.cat === 1);
+  const whole = rain.find((m) => m.start === 0), part = rain.find((m) => m.start === 6);
+  let max = 0;
+  for (let i = 0; i < whole.values.length; i++) { max = Math.max(max, whole.values[i]); assert.ok(Math.abs(whole.values[i] - (a6.values[i] + part.values[i])) < 0.13, `punto ${i}`); }
+  assert.ok(max > 20, `llovió ${max} mm`);
+});
+
+test('lluvia: el intervalo con las horas en minutos (como el DWD) y un tramo que no empieza en 0', async () => {
+  const { parseGrib2 } = await grib();
+  const buf = Buffer.from(fs.readFileSync(RAIN(12)));
+  // El primer mensaje de lluvia (6–12): hora de previsión 360 min y duración 360 min.
+  let p = 0;
+  for (;;) {
+    const total = Number(buf.readBigUInt64BE(p + 8));
+    let o = p + 16;
+    while (buf[o + 4] !== 4) o += buf.readUInt32BE(o);
+    if (buf.readUInt16BE(o + 7) === 8 && buf.readUInt32BE(o + 18) === 6) {
+      buf[o + 17] = 0; buf.writeUInt32BE(360, o + 18); buf[o + 48] = 0; buf.writeUInt32BE(360, o + 49);
+      break;
+    }
+    p += total;
+    assert.ok(p < buf.length, 'no hay un mensaje 6–12');
+  }
+  const m = parseGrib2(buf).find((x) => x.start === 6);
+  assert.deepEqual([m.start, m.span, m.hour], [6, 6, 12]);
+});
+
+test('lluvia: de los mensajes de una hora salen la temperatura a 2 m y los acumulados (el tramo de 6 h de GFS también)', async () => {
+  const { parseGrib2 } = await grib();
+  const { pickMet } = await metmod();
+  const got = pickMet(parseGrib2(fs.readFileSync(RAIN(7))), 'gfs', RAIN_GRID, 7, validAt(7));
+  assert.equal(got.temp.length, 35);
+  assert.ok(got.temp.every((c) => c > 15 && c < 25), 'grados Celsius, no kelvin ni la temperatura del suelo');
+  assert.deepEqual(got.acc.map((a) => a.start).sort(), [0, 6]);
+  // De norte a sur: la primera fila es la de 41,5 N, que es la última del fichero.
+  const raw = parseGrib2(fs.readFileSync(RAIN(7))).find((m) => m.cat === 1 && m.start === 0);
+  assert.deepEqual(Array.from(got.acc.find((a) => a.start === 0).values.subarray(0, 7)), Array.from(raw.values.subarray(28, 35)));
+  // A +0 h no hay lluvia; una hora equivocada o un fichero sin la variable se rechazan.
+  assert.equal(pickMet(parseGrib2(fs.readFileSync(RAIN(7))), 'gfs', RAIN_GRID, 0, validAt(7)).acc, null);
+  assert.throws(() => pickMet(parseGrib2(fs.readFileSync(RAIN(7))), 'gfs', RAIN_GRID, 8, validAt(8)), /hora/);
+  assert.throws(() => pickMet(parseGrib2(fs.readFileSync(FIXTURE)), 'gfs', RAIN_GRID, 18, validAt(18)), /temperatura/);
+  const onlyT = parseGrib2(fs.readFileSync(RAIN(7))).filter((m) => m.cat === 0);
+  assert.throws(() => pickMet(onlyT, 'gfs', RAIN_GRID, 7, validAt(7)), /falta la lluvia/);
+  // Con otro código de lluvia (ECMWF usa 1/193) no se confunde.
+  assert.throws(() => pickMet(parseGrib2(fs.readFileSync(RAIN(7))), 'ecmwf', RAIN_GRID, 7, validAt(7)), /falta la lluvia/);
+});
+
+// Mensajes sintéticos con la forma de los de cada modelo: una rejilla de 3 × 2 puntos.
+const FAKE_GRID = { west: 0, north: 41, step: 1, cols: 3, rows: 2 };
+const fake = (num, start, span, h, vals, extra = {}) => ({
+  discipline: 0, cat: 1, num, surface: 1, level: 0, stat: 1, start, span, hour: start + span, refTime: RUN_T,
+  grid: { ni: 3, nj: 2, la1: 41, lo1: 0, la2: 40, lo2: 2, di: 1, dj: 1, scan: 0 }, values: Float32Array.from(vals), ...extra
+});
+const temp2m = (kelvin) => ({ discipline: 0, cat: 0, num: 0, surface: 103, level: 2, hour: 0, refTime: RUN_T, grid: { ni: 3, nj: 2, la1: 41, lo1: 0, la2: 40, lo2: 2, di: 1, dj: 1, scan: 0 }, values: Float32Array.from(Array(6).fill(kelvin)) });
+
+test('lluvia: ECMWF (en metros) e ICON-EU (en mm) acumulan desde la pasada: la media de cada tramo, y si falta una hora el tramo se alarga', async () => {
+  const { pickMet, ratesFromAccumulated } = await metmod();
+  const n = 6;
+  // ECMWF, cada 3 h, en metros: 0, 3 mm, 9 mm y 9,6 mm en el primer punto.
+  const ec = [3, 6, 9].map((h, k) => ({ h, acc: pickMet([temp2m(280), fake(193, 0, h, h, [[0.003, 0.009, 0.0096][k], 0, 0, 0, 0, 0])], 'ecmwf', FAKE_GRID, h, (m) => m.hour === h || m.cat === 0).acc }));
+  assert.ok(Math.abs(ec[0].acc[0].values[0] - 3) < 1e-4, 'metros a mm');
+  const r1 = ratesFromAccumulated([{ h: 0, acc: null }, ...ec], n);
+  assert.deepEqual(r1.map((r) => [r.h, r.span]), [[0, 0], [3, 3], [6, 3], [9, 3]]);
+  assert.deepEqual(r1.map((r) => +r.rate[0].toFixed(3)), [0, 1, 2, 0.2], 'mm/h de cada tramo de 3 h');
+  assert.ok(r1.every((r) => r.rate.length === n));
+  // ICON-EU, cada hora, en mm desde la pasada (a +0 h no hay fichero de lluvia). Con +2 h perdida: el tramo de +3 h dura 2 horas.
+  const ic = (h, v) => ({ h, acc: pickMet([temp2m(280), fake(52, 0, h, h, [v, 0, 0, 0, 0, 0])], 'icon-eu', FAKE_GRID, h, (m) => m.hour === h || m.cat === 0).acc });
+  const r2 = ratesFromAccumulated([{ h: 0, acc: null }, ic(1, 0.5), ic(3, 2.5), ic(4, 2.5)], n);
+  assert.deepEqual(r2.map((r) => [r.h, r.span, +r.rate[0].toFixed(3)]), [[0, 0, 0], [1, 1, 0.5], [3, 2, 1], [4, 1, 0]]);
+  // Sin +0 h y empezando en +2 h: el primer tramo va desde el principio de la pasada.
+  const r3 = ratesFromAccumulated([ic(2, 1), ic(3, 1.5)], n);
+  assert.deepEqual(r3.map((r) => [r.h, r.span, +r.rate[0].toFixed(3)]), [[2, 2, 0.5], [3, 1, 0.5]]);
+  // El redondeo de dos acumulados casi iguales no da lluvia negativa.
+  assert.equal(ratesFromAccumulated([ic(1, 1), ic(2, 0.99)], n)[1].rate[0], 0);
+  // Un acumulado que falta en medio se salta.
+  assert.deepEqual(ratesFromAccumulated([ic(1, 1), { h: 2, acc: undefined }, ic(3, 4)], n).map((r) => [r.h, r.span]), [[1, 1], [3, 2]]);
+});
+
+test('lluvia: GFS acumula en tramos de 6 h que vuelven a cero; con los mensajes reales se reconstruye igual con el acumulado o con los tramos', async () => {
+  const { parseGrib2 } = await grib();
+  const { pickMet, ratesFromAccumulated } = await metmod();
+  const picks = {};
+  for (const h of [6, 7, 12]) picks[h] = pickMet(parseGrib2(fs.readFileSync(RAIN(h))), 'gfs', RAIN_GRID, h, validAt(h));
+  const n = 35;
+  // Con el acumulado desde la pasada (lo que trae cada fichero de NOMADS).
+  const whole = ratesFromAccumulated([6, 7, 12].map((h) => ({ h, acc: picks[h].acc })), n);
+  assert.deepEqual(whole.map((r) => [r.h, r.span]), [[6, 6], [7, 1], [12, 5]]);
+  // Solo con los tramos (6–7 y 6–12 de las horas siguientes): el de +6 h ya es el acumulado (0–6).
+  const buckets = [6, 7, 12].map((h) => ({ h, acc: picks[h].acc.filter((a) => a.start === (h === 6 ? 0 : 6)) }));
+  assert.deepEqual(buckets.map((b) => b.acc.length), [1, 1, 1]);
+  const rebuilt = ratesFromAccumulated(buckets, n);
+  assert.deepEqual(rebuilt.map((r) => [r.h, r.span]), [[6, 6], [7, 1], [12, 5]]);
+  for (let k = 0; k < 3; k++) for (let i = 0; i < n; i++) assert.ok(Math.abs(rebuilt[k].rate[i] - whole[k].rate[i]) < 0.07, `+${rebuilt[k].h} h punto ${i}: ${rebuilt[k].rate[i]} frente a ${whole[k].rate[i]}`);
+  // La media de +7 h es el tramo 6–7 tal cual lo da el modelo (1 hora).
+  const bucket67 = picks[7].acc.find((a) => a.start === 6).values;
+  for (let i = 0; i < n; i++) assert.ok(Math.abs(whole[1].rate[i] - bucket67[i]) < 0.13, `6–7 h punto ${i}`);
+  // Lo que cae entre +7 y +12 h es el tramo 6–12 menos el 6–7.
+  const bucket612 = picks[12].acc.find((a) => a.start === 6).values;
+  for (let i = 0; i < n; i++) assert.ok(Math.abs(whole[2].rate[i] * 5 - (bucket612[i] - bucket67[i])) < 0.2, `7–12 h punto ${i}`);
+  assert.ok(Math.max(...whole[0].rate) > 2, 'llueve de verdad en el recorte');
+  // Si falta el acumulado del principio del tramo, el siguiente no se puede reconstruir.
+  assert.deepEqual(ratesFromAccumulated([{ h: 7, acc: picks[7].acc.filter((a) => a.start === 6) }], n), []);
+});
+
+test('lluvia: el formato de lluvia y temperatura se codifica y decodifica (lluvia no lineal, temperatura de 0,5 °C)', () => {
+  const grid = { west: 0, north: 10, step: 0.25, cols: 30, rows: 20 };
+  const n = grid.cols * grid.rows;
+  const rain = new Float32Array(n), temp = new Float32Array(n);
+  for (let i = 0; i < n; i++) { rain[i] = i % 5 ? 0 : ((i % 97) / 96) ** 3 * 60; temp[i] = -20 + 70 * Math.abs(Math.sin(i / 41)); }
+  rain[10] = 0.003; rain[15] = 0.04; rain[20] = 0.1; rain[25] = 0.3; rain[30] = 59.9; rain[35] = 500; rain[40] = -1; temp[5] = NaN; temp[6] = -90; temp[7] = 90;
+  const bytes = M.encode({ rain, temp }, grid);
+  assert.equal(bytes.length, 2 * n);
+  const d = M.decode(bytes, grid);
+  for (let i = 0; i < n; i++) {
+    const r = rain[i] > 0 ? Math.min(rain[i], 104) : 0;
+    // Resolución de 0,1 mm/h o mejor hasta 1,5 mm/h y relativa después (la mitad de un escalón).
+    const tol = r < 1.5 ? 0.05 : Math.sqrt(r) * 0.04 + 0.01;
+    assert.ok(Math.abs(d.rain[i] - r) <= tol, `lluvia[${i}] ${rain[i]} → ${d.rain[i]}`);
+    if (i > 7) assert.ok(Math.abs(d.temp[i] - temp[i]) <= 0.25 + 1e-4, `temperatura[${i}]`);
+  }
+  assert.ok(d.rain[30] > 59 && d.rain[30] < 61, 'más de 60 mm/h se distinguen');
+  assert.ok(Math.abs(d.rain[35] - 104.04) < 1e-3, 'se recorta a 104 mm/h');
+  assert.equal(d.rain[40], 0, 'la lluvia negativa es 0');
+  assert.equal(d.temp[6], -60, 'se recorta a −60 °C');
+  assert.equal(d.temp[7], 60, 'y a +60 °C');
+  assert.equal(d.temp[5], d.temp[4], 'sin dato, la del punto anterior');
+  assert.equal(new Set(M.decode(M.encode({ rain: new Float32Array(n), temp: new Float32Array(n).fill(14.9) }, grid), grid).temp).size, 1);
+  // Va aparte del viento: la misma rejilla, con 2 campos en vez de 3.
+  assert.equal(M.encode({ rain, temp }, grid).length / n, 2);
+  assert.throws(() => M.decode(bytes.subarray(1), grid), /bytes/);
+  // El campo de lluvia, casi todo ceros, comprime muy bien.
+  assert.ok(zlib.gzipSync(M.encode({ rain: new Float32Array(n), temp }, grid)).length < n);
+  // Interpolación en un punto y fuera de la rejilla.
+  const g = { west: -10, north: 50, step: 1, cols: 3, rows: 3 };
+  const step = { rain: Float32Array.from([0, 2, 4, 0, 2, 4, 0, 2, 4]), temp: Float32Array.from([10, 12, 14, 10, 12, 14, 10, 12, 14]) };
+  const s = M.sample(step, g, 49.5, -9.5);
+  assert.ok(Math.abs(s.rain - 1) < 1e-6 && Math.abs(s.temp - 11) < 1e-6);
+  assert.equal(M.sample(step, g, 51, -9), null);
+});
+
+test('lluvia: los colores de la lluvia son los del radar y la temperatura tiene su escala divergente', () => {
+  const lut = M.rainColorTable();
+  assert.equal(lut.length, 256);
+  assert.equal(lut[0], 0, 'sin lluvia, transparente');
+  for (let q = 1; q < 256; q++) assert.equal(lut[q] === 0, (q / M.META.rainK) ** 2 < M.RAIN_MIN, `q = ${q}`);
+  // Misma intensidad, mismo color que el radar (tabla de palette.js, por dBZ).
+  const pack = ([r, g, b, a]) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
+  const radar = (dbz) => P._table.find((e) => e.kind === P.KIND_RAIN && e.dbz === dbz).rgba;
+  for (const mm of [0.3, 1, 5, 20, 60]) {
+    const q = M.rainIndex(mm), rate = (q / M.META.rainK) ** 2;
+    assert.equal(lut[q], pack(radar(Math.floor(P.rateToDbz(rate, P.KIND_RAIN)))), `${mm} mm/h`);
+  }
+  assert.equal(M.rainIndex(0), 0);
+  assert.equal(M.rainIndex(1e6), 255);
+  assert.ok(Math.abs(P.rateToDbz(M.RAIN_MIN, P.KIND_RAIN) - 7) < 0.05, '0,1 mm/h son los 7 dBZ que el radar no pinta por debajo');
+  assert.equal(M.rainCss(5), P.cssFor(P.rateToDbz(5, P.KIND_RAIN), P.KIND_RAIN));
+  // Temperatura: del azul violeta al rojo oscuro, con un neutro entre medias.
+  const t = M.tempColorTable();
+  assert.equal(t.length, M.TEMP_Q_MAX + 1);
+  assert.deepEqual(M.tempColor(-60), M.TEMP_ANCHORS[0][1]);
+  assert.deepEqual(M.tempColor(80), M.TEMP_ANCHORS[M.TEMP_ANCHORS.length - 1][1]);
+  const [cr, cg, cb] = M.tempColor(-10), [wr, wg, wb] = M.tempColor(35);
+  assert.ok(cb > cr && wr > wb, 'frío azulado, calor rojizo');
+  const mid = M.tempColor(15);
+  assert.ok(Math.max(...mid) - Math.min(...mid) < 40, 'a los 15 °C el color es casi neutro');
+  assert.equal(t[M.tempIndex(20)], ((255 << 24) | (M.tempColor(20)[2] << 16) | (M.tempColor(20)[1] << 8) | M.tempColor(20)[0]) >>> 0);
+  assert.equal(M.tempIndex(-60), 0);
+  assert.equal(M.tempIndex(0.2), 120);
+  assert.equal(M.tempIndex(100), M.TEMP_Q_MAX);
+  assert.ok(wg !== undefined && cg !== undefined);
 });

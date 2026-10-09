@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /*
- * Lector GRIB2 mínimo para los modelos del modo «Viento»: rejilla
+ * Lector GRIB2 mínimo para los modelos del modo «Previsión»: rejilla
  * latitud-longitud regular (plantilla 3.0), producto en un instante o en un
- * intervalo (plantillas 4.0 y 4.8, la racha máxima) y dos empaquetados: el
- * simple (5.0, el de los recortes del filtro de NOMADS para GFS) y el CCSDS
- * (5.42, el de ECMWF y el DWD), sin mapa de bits. Cualquier otra cosa da
- * error en lugar de valores equivocados.
+ * intervalo (plantillas 4.0 y 4.8: la racha máxima y la lluvia acumulada) y dos
+ * empaquetados: el simple (5.0, el de los recortes del filtro de NOMADS para
+ * GFS) y el CCSDS (5.42, el de ECMWF y el DWD), sin mapa de bits. Cualquier
+ * otra cosa da error en lugar de valores equivocados.
  */
 
 // GRIB2 guarda los enteros con signo como signo + magnitud, no en complemento a dos.
@@ -144,7 +144,12 @@ export function aecDecode(bytes, start, end, n, bps, block, rsi, flags) {
 
 // ---------------------------------------------------------------------------
 
-/** Devuelve los mensajes del fichero: { refTime, hour, cat, num, surface, level, grid, values }. */
+/**
+ * Devuelve los mensajes del fichero: { refTime, hour, cat, num, surface, level, grid, values }.
+ * En los productos de intervalo (4.8) `hour` es el final del intervalo y además
+ * van `start` (su principio, en horas desde la pasada), `span` (su duración) y
+ * `stat` (el proceso estadístico: 1 acumulación, 2 máximo…).
+ */
 export function parseGrib2(input) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -155,7 +160,7 @@ export function parseGrib2(input) {
     if (bytes[p + 7] !== 2) throw new Error(`GRIB2: edición ${bytes[p + 7]}`);
     const total = Number(dv.getBigUint64(p + 8));
     if (p + total > bytes.length) throw new Error('GRIB2: mensaje cortado');
-    const m = {};
+    const m = { discipline: bytes[p + 6] };
     let o = p + 16, pack = null;
     while (o < p + total - 4) {
       const len = dv.getUint32(o), sec = bytes[o + 4];
@@ -172,7 +177,8 @@ export function parseGrib2(input) {
           scan: bytes[o + 71]
         };
       } else if (sec === 4) {
-        // 4.0: en un instante; 4.8: en un intervalo (la racha máxima de la última hora o las últimas horas).
+        // 4.0: en un instante; 4.8: en un intervalo (la racha máxima de la última hora o las últimas horas,
+        // o la lluvia acumulada desde el principio de la pasada o de un tramo de 6 h).
         const tmpl = dv.getUint16(o + 7);
         if (tmpl !== 0 && tmpl !== 8) throw new Error(`GRIB2: producto ${tmpl} no admitido`);
         // Horas (NOAA, ECMWF) o minutos (DWD).
@@ -187,8 +193,12 @@ export function parseGrib2(input) {
         m.surface = bytes[o + 22];
         m.level = dv.getUint32(o + 24) / 10 ** sm8(bytes[o + 23]);
         if (tmpl === 8) {
-          // El intervalo (p. ej. la racha máxima de la última hora): la hora válida es su final.
+          // La «hora de previsión» de esta plantilla es el PRINCIPIO del intervalo (la lluvia acumulada
+          // desde la pasada tiene 0; la de un tramo de 6 h de GFS, 6, 12…); el final es esa hora más la
+          // duración del primer intervalo, y esa es la hora válida del campo.
           if (bytes[o + 41] < 1) throw new Error('GRIB2: intervalo no admitido');
+          m.start = m.hour;
+          m.stat = bytes[o + 46];
           m.span = hours(bytes[o + 48], dv.getUint32(o + 49));
           m.hour += m.span;
         }

@@ -830,13 +830,13 @@ function registerIpc() {
     return data;
   });
 
-  // Viento (ECMWF, ICON-EU y GFS): también lo publica la web (scripts/viento/datos.mjs).
-  // `file` es el índice de un modelo (ecmwf/index.json) o una hora de una pasada
-  // (ecmwf/2026100812/f018.gz, binario, que descomprime la interfaz). De cada
-  // modelo solo se guardan las horas de su última pasada.
+  // Previsión (viento, lluvia y temperatura de ECMWF, ICON-EU y GFS): también la publica la web
+  // (scripts/viento/datos.mjs). `file` es el índice de un modelo (ecmwf/index.json) o una hora
+  // de una pasada (ecmwf/2026100812/f018.gz el viento, m018.gz la lluvia y la temperatura,
+  // binarios que descomprime la interfaz). De cada modelo solo se guardan las horas de su última pasada.
   const viento = new Map();
   ipcMain.handle('viento:get', async (_e, file = '') => {
-    const m = /^(ecmwf|icon-eu|gfs)\/(index\.json|(\d{10})\/f\d{3}\.gz)$/.exec(file);
+    const m = /^(ecmwf|icon-eu|gfs)\/(index\.json|(\d{10})\/[fm]\d{3}\.gz)$/.exec(file);
     if (!m) throw new Error('Fichero no válido');
     const isIndex = m[2] === 'index.json';
     const hit = viento.get(file);

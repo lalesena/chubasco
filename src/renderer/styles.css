@@ -841,7 +841,7 @@ body.widget { background: transparent; overflow: hidden; }
 .agua-legend-scale span { width: 30px; font-variant-numeric: tabular-nums; }
 .agua-legend-scale .unit { width: auto; margin-left: -4px; }
 
-/* Viento: partículas y fondo por velocidad sobre el mapa, su línea de tiempo y el panel */
+/* Previsión (viento, lluvia y temperatura): partículas y fondo coloreado sobre el mapa, su línea de tiempo y el panel */
 #viento-button[aria-pressed='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .viento-mode .leaflet-radar-pane, .viento-mode .leaflet-lightning-pane, .viento-mode .leaflet-overlay-pane,
 .viento-mode #timeline, .viento-mode .map-tools .tool-btn#layers-button,
@@ -894,3 +894,24 @@ body.widget { background: transparent; overflow: hidden; }
 @media (max-width: 1040px) { .vt-legend { display: none; } }
 .vt-models { padding: 2px 0 12px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
 .vt-models .hint { margin-top: 6px; }
+.vt-tabs { margin: 0 0 10px; }
+.vt-outlook { margin-top: 10px; }
+.vt-totals { display: flex; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.vt-totals li { flex: 1; display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); }
+.vt-totals li span { font-size: 11.5px; color: var(--muted); }
+.vt-totals li b { font-size: 15px; font-weight: 640; font-variant-numeric: tabular-nums; }
+.vt-totals li.partial b { opacity: 0.55; }
+.chart .vt-col { fill: var(--ink); opacity: 0.05; }
+.chart .vt-col.cur { opacity: 0.09; }
+.chart .vt-temp { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; }
+.chart .vt-temp-area { fill: var(--accent); opacity: 0.1; }
+.chart .vt-dot { fill: var(--accent); stroke: var(--side); stroke-width: 1.6; }
+.chart .grid.zero { stroke: var(--faint); stroke-dasharray: 2 3; }
+.vt-days ul { margin: 0; padding: 0; list-style: none; }
+.vt-days li { display: grid; grid-template-columns: 6.2em 2.2em 1fr 2.2em; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.vt-days .vt-day { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-days .vt-tmin { text-align: right; color: var(--muted); }
+.vt-days .vt-tmax { font-weight: 600; }
+.vt-trange { position: relative; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.vt-trange i { position: absolute; top: 0; bottom: 0; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent); }
+.vt-days .hint { margin: 6px 0 0; }
