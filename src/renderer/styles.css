@@ -658,7 +658,7 @@ body.widget { background: transparent; overflow: hidden; }
 .about { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; color: var(--muted); }
 .about h3 { font-size: 12.5px; color: var(--ink); margin: 8px 0 2px; }
 .about p { margin: 0 0 6px; }
-.about .links { display: flex; gap: 12px; }
+.about .links { display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .about a { color: var(--accent); }
 .version { color: var(--faint); }
 
@@ -682,18 +682,61 @@ body.widget { background: transparent; overflow: hidden; }
   user-select: all;
 }
 
-/* Móvil: el estado arriba y el mapa debajo, con la página desplazable. */
+/* Móvil (web): el mapa a pantalla completa y el panel en una hoja que sube
+   desde abajo. Plegada enseña el lugar y el estado; se despliega tocándola o
+   arrastrándola (ver web-ui.js, que pone --peek a la medida de la pantalla). */
 @media (max-width: 760px) {
-  body.platform-web { overflow: auto; }
-  .platform-web #app { display: flex; flex-direction: column; height: auto; min-height: 100%; }
-  .platform-web #sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
-  .platform-web .side-scroll { overflow: visible; }
-  .platform-web #map-wrap { flex: none; height: 75vh; min-height: 420px; }
-  .platform-web .timeline { left: 8px; right: 8px; bottom: 44px; gap: 8px; padding: 6px 10px 8px 6px; }
-  .platform-web .attribution { left: 8px; right: 8px; text-align: right; font-size: 9.5px; line-height: 1.35; }
+  .platform-web #app { display: block; position: relative; height: 100vh; height: 100dvh; overflow: hidden; --peek: 228px; }
+  .platform-web #map-wrap { position: absolute; inset: 0; }
+  .platform-web #sidebar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000;
+    height: calc(100% - 62px - env(safe-area-inset-top));
+    border: 0; border-radius: 18px 18px 0 0;
+    box-shadow: 0 -2px 20px rgba(10, 30, 45, 0.2);
+    transform: translateY(calc(100% - var(--peek)));
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .platform-web #sidebar.sheet-open { transform: none; }
+  /* Plegada, lo que no cabe se desvanece en vez de quedar cortado. */
+  .platform-web #sidebar::after {
+    content: ''; position: absolute; left: 0; right: 0; top: calc(var(--peek) - 30px); height: 30px;
+    background: linear-gradient(color-mix(in srgb, var(--side) 0%, transparent), var(--side));
+    pointer-events: none; transition: opacity 0.2s;
+  }
+  .platform-web #sidebar.sheet-open::after, .platform-web #sidebar.sheet-dragging::after { opacity: 0; }
+  .platform-web #sidebar.sheet-dragging { transition: none; }
+  .platform-web .drag { height: 20px; display: grid; place-items: center; cursor: pointer; touch-action: none; }
+  .platform-web .drag::before { content: ''; width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 24%, transparent); }
+  .platform-web .side-head { padding: 0 6px 2px 16px; gap: 2px; touch-action: none; }
+  .platform-web .icon-btn { width: 40px; height: 40px; }
+  .platform-web .icon-btn svg { width: 20px; height: 20px; }
+  .platform-web .loc-name { font-size: 18px; }
+  .platform-web .side-scroll { padding: 2px 16px calc(28px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+  .platform-web #sidebar:not(.sheet-open) .side-scroll { overflow: hidden; }
+  .platform-web .status { padding: 0 0 16px; }
+  .platform-web .meter { margin: 2px 0 10px; }
+  .platform-web .headline { font-size: 30px; }
+  .platform-web .detail { max-width: none; margin-top: 8px; }
+  .platform-web .outlook, .platform-web .lightning-line { max-width: none; }
+  .platform-web #loc-popover { top: 64px; left: 8px; right: 8px; max-height: calc(100% - 76px); }
+
+  /* Sobre el mapa, por encima de la hoja plegada. */
+  .platform-web .timeline { left: 8px; right: 8px; bottom: calc(var(--peek) + var(--attr-h, 28px) + 6px); gap: 6px; padding: 6px 10px 8px 4px; }
+  .platform-web .tl-btn { width: 36px; height: 36px; }
+  .platform-web .tl-btn.play { width: 38px; height: 38px; }
+  .platform-web .tl-track { height: 20px; }
+  .platform-web .attribution { left: 8px; right: 8px; bottom: calc(var(--peek) + 2px); text-align: right; font-size: 9.5px; line-height: 1.35; }
+  .platform-web .agua-legend { left: 8px; bottom: calc(var(--peek) + var(--attr-h, 28px) + 6px); }
+  .platform-web .map-tools { top: calc(10px + env(safe-area-inset-top)); right: 10px; }
+  .platform-web .tool-btn { width: 42px; height: 42px; }
+  .platform-web .layers { right: 52px; width: min(250px, calc(100vw - 72px)); }
+  .platform-web .leaflet-control-zoom { display: none; }
+  .platform-web .banner { top: calc(10px + env(safe-area-inset-top)); left: 10px; right: 62px; width: auto; transform: none; white-space: normal; justify-content: center; border-radius: var(--radius-m); }
+
+  .platform-web .dialog { width: calc(100vw - 16px); max-width: none; max-height: calc(100dvh - 16px); }
+  .platform-web .dialog form { padding: 14px 16px 18px; }
   .platform-web .grid-form, .platform-web .em-form { grid-template-columns: 1fr; gap: 4px 0; }
   .platform-web .grid-form > label { margin-top: 8px; }
-  .platform-web .banner { white-space: normal; width: calc(100% - 24px); justify-content: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {

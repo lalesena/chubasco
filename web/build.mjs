@@ -115,7 +115,7 @@ await write('config.js', `window.CHUBASCO_WEB = ${JSON.stringify({ version: pkg.
 console.log(`Radar: OPERA a través de ${OPERA_PROXY}`);
 
 // 3. Páginas.
-const HEAD = `<meta name="viewport" content="width=device-width, initial-scale=1">
+const HEAD = `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Radar de lluvia en tiempo real, previsión para las próximas 2 horas y avisos cuando se acerca la lluvia.">
   <meta name="theme-color" content="#0077aa">
   <link rel="icon" href="icon-192.png">

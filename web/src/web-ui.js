@@ -11,9 +11,22 @@
   // Tamaño del iframe de cada widget (algo más alto que en el escritorio: lleva los créditos de los datos).
   const SIZES = { small: [170, 186], medium: [360, 184], large: [360, 414] };
 
-  // En la web los datos se guardan en el navegador, no "en este ordenador".
-  const sources = document.querySelector('[data-i18n="set.sourcesText"]');
-  if (sources) sources.dataset.i18n = 'web.sourcesText';
+  // Textos propios de la web: los datos se guardan en el navegador (no «en
+  // este ordenador»), no hay ubicación aproximada y, en una pantalla táctil, no
+  // hay clic derecho sino mantener pulsado. La interfaz común pone los textos
+  // antes de que esto corra, así que se vuelven a poner aquí (relabel).
+  const touch = matchMedia('(pointer: coarse)').matches;
+  const swaps = [
+    ['set.sourcesText', 'web.sourcesText'],
+    ['ui.onboardText', touch ? 'web.onboardTextTouch' : 'web.onboardText'],
+    ...(touch ? [['ui.rightClickHint', 'web.longPressHint']] : [])
+  ].map(([from, to]) => {
+    const el = document.querySelector(`[data-i18n="${from}"]`);
+    if (el) el.dataset.i18n = to;
+    return el;
+  }).filter(Boolean);
+  // Sin teclado, los atajos sobran.
+  if (touch) for (const key of ['set.shortcuts', 'set.shortcutsText']) { const el = document.querySelector(`[data-i18n="${key}"]`); if (el) el.hidden = true; }
   if (cfg.releases) {
     $('web-download').href = cfg.releases;
     $('web-download').hidden = false;
@@ -21,6 +34,7 @@
 
   let state = null;
   const t = () => I.make(I.resolveLang(state.settings.language, state.systemLocale));
+  const relabel = () => { const tr = t(); for (const el of swaps) el.textContent = tr(el.dataset.i18n); };
 
   // ------------------------------------------------------------------
   // Insertar en otra web
@@ -86,9 +100,98 @@
     renderAlerts();
   });
 
+  // ------------------------------------------------------------------
+  // Móvil: el panel es una hoja sobre el mapa (ver styles.css). Plegada deja
+  // ver el lugar y el estado; se despliega tocándola o arrastrándola.
+
+  const narrow = matchMedia('(max-width: 760px)');
+  const app = $('app');
+  const sheet = $('sidebar');
+  const handle = sheet.querySelector('.drag');
+  // El asa solo es un botón cuando se ve (en pantallas estrechas).
+  const syncHandle = () => {
+    if (narrow.matches) { handle.setAttribute('role', 'button'); handle.tabIndex = 0; } else { handle.removeAttribute('role'); handle.removeAttribute('tabindex'); }
+  };
+  syncHandle();
+  narrow.addEventListener('change', syncHandle);
+  const isOpen = () => sheet.classList.contains('sheet-open');
+  // Lo que asoma con la hoja plegada: el lugar y el estado, sin quitarle al mapa más de un tercio.
+  const peek = () => Math.round(Math.min(236, Math.max(168, window.innerHeight * 0.32)));
+  const closedY = () => sheet.offsetHeight - peek();
+  function fitPeek() { app.style.setProperty('--peek', `${peek()}px`); }
+  function setOpen(open) {
+    sheet.classList.toggle('sheet-open', open);
+    handle.setAttribute('aria-expanded', String(open));
+    if (!open) for (const el of sheet.querySelectorAll('.side-scroll')) el.scrollTop = 0;
+  }
+  fitPeek();
+  window.addEventListener('resize', fitPeek);
+  // La línea de tiempo va justo encima de los créditos del mapa, que ocupan más o menos líneas.
+  const credits = $('attribution');
+  new ResizeObserver(() => app.style.setProperty('--attr-h', `${credits.offsetHeight}px`)).observe(credits);
+  setOpen(false);
+  handle.addEventListener('click', () => setOpen(!isOpen()));
+  handle.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!isOpen()); }
+  });
+  // Tocar lo que asoma la despliega; elegir lugar también (la lista va dentro).
+  const control = (el) => el.closest('button, a, input, select, textarea, label, summary, .popover');
+  sheet.addEventListener('click', (e) => {
+    if (narrow.matches && !isOpen() && !e.target.closest('.drag') && !control(e.target)) setOpen(true);
+  });
+  $('loc-button').addEventListener('click', () => { if (narrow.matches) setOpen(true); });
+
+  // Arrastre con el dedo: plegada, desde cualquier sitio; desplegada, desde el
+  // asa y la cabecera, o tirando hacia abajo con el contenido ya arriba del todo.
+  let drag = null;
+  sheet.addEventListener('touchstart', (e) => {
+    if (!narrow.matches || e.touches.length !== 1) { drag = null; return; }
+    drag = {
+      y0: e.touches[0].clientY, t0: performance.now(), dy: 0, mode: null, base: 0,
+      scroller: e.target.closest('.side-scroll'), fromHead: !!e.target.closest('.drag, .side-head'),
+      inPopover: !!e.target.closest('.popover')
+    };
+  }, { passive: true });
+  sheet.addEventListener('touchmove', (e) => {
+    if (!drag || drag.inPopover) return;
+    const y = e.touches[0].clientY;
+    if (!drag.mode) {
+      const dy = y - drag.y0;
+      if (Math.abs(dy) < 6) return;
+      const atTop = !drag.scroller || drag.scroller.scrollTop <= 0;
+      drag.mode = !isOpen() || drag.fromHead || (dy > 0 && atTop) ? 'sheet' : 'scroll';
+      if (drag.mode === 'sheet') {
+        drag.base = isOpen() ? 0 : closedY();
+        drag.y0 = y;
+        drag.t0 = performance.now();
+        sheet.classList.add('sheet-dragging');
+      }
+    }
+    if (drag.mode !== 'sheet') return;
+    e.preventDefault();
+    drag.dy = y - drag.y0;
+    sheet.style.transform = `translateY(${Math.max(0, Math.min(closedY(), drag.base + drag.dy))}px)`;
+  }, { passive: false });
+  const endDrag = (snap) => {
+    const d = drag;
+    drag = null;
+    if (!d || d.mode !== 'sheet') return;
+    sheet.classList.remove('sheet-dragging');
+    sheet.style.transform = '';
+    if (!snap) return;
+    const v = d.dy / Math.max(1, performance.now() - d.t0); // px/ms; un gesto rápido manda
+    setOpen(v < -0.35 ? true : v > 0.35 ? false : d.base + d.dy < closedY() / 2);
+  };
+  sheet.addEventListener('touchend', () => endDrag(true));
+  sheet.addEventListener('touchcancel', () => endDrag(false));
+
   api.getState().then((st) => {
     state = st;
     renderAlerts();
+    relabel();
+    handle.setAttribute('aria-label', t()('web.sheet'));
+    // Sin ningún lugar aún: la hoja abierta, con el buscador.
+    if (!st.locations.length) setOpen(true);
     api.on('locations', (p) => {
       state.locations = p.locations;
       state.activeLocationId = p.activeLocationId;
@@ -97,6 +200,8 @@
     api.on('settings', (p) => {
       state.settings = p.settings;
       renderAlerts();
+      relabel();
+      handle.setAttribute('aria-label', t()('web.sheet'));
       if ($('embed-dialog').open) updateEmbed();
     });
   });
