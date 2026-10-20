@@ -95,8 +95,8 @@
       }
       return out;
     };
-    const rain = field(0, (q) => (q / meta.rainK) ** 2);
-    const temp = field(1, (q) => meta.tempMin + q * meta.tempStep);
+    const rain = WG.mask(field(0, (q) => (q / meta.rainK) ** 2), grid);
+    const temp = WG.mask(field(1, (q) => meta.tempMin + q * meta.tempStep), grid);
     return { rain, temp };
   }
 
@@ -133,7 +133,7 @@
         out[i] = (q > 32767 ? q - 65536 : q) * meta.step;
       }
     }
-    return out;
+    return WG.mask(out, grid);
   }
 
   /** Lluvia (mm/h) y temperatura (°C) en un punto, o null si cae fuera de la rejilla. */

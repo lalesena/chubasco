@@ -14,6 +14,8 @@
  *    el principio de la pasada (intervalo 0–h) y el del tramo de 6 horas en
  *    curso (6–h, 12–h…), que vuelve a cero cada 6 horas. Se usa el primero; si
  *    faltara, el segundo se suma al acumulado de la hora en que empezó el tramo.
+ *  - AROME y ARPEGE (Météo-France, 1/52, en kg/m² = mm): como ICON-EU, desde el
+ *    principio de la pasada.
  *
  * `ratesFromAccumulated` convierte eso en la media (mm/h) del tramo que acaba
  * en cada hora publicada.
@@ -27,7 +29,9 @@ import { extract } from './grib2.mjs';
 export const PREC = {
   ecmwf: { cat: 1, num: 193, mm: 1000 },
   'icon-eu': { cat: 1, num: 52, mm: 1 },
-  gfs: { cat: 1, num: 8, mm: 1 }
+  gfs: { cat: 1, num: 8, mm: 1 },
+  arome: { cat: 1, num: 52, mm: 1 },
+  arpege: { cat: 1, num: 52, mm: 1 }
 };
 
 /**
@@ -99,11 +103,16 @@ export function ratesFromAccumulated(steps, n) {
  *  - ICON-EU: HSURF, la altura de la superficie sobre el nivel del mar (3/6, en m),
  *    un fichero «invariante en el tiempo» por pasada.
  *  - GFS: HGT en superficie (3/5, en gpm ≈ m), de la hora 0 con el filtro de NOMADS.
+ *  - AROME y ARPEGE: la altura de la superficie (3/6, en m) de la hora 0 del
+ *    paquete SP2. La de AROME no tiene datos fuera de su zona (masked: ahí
+ *    queda 0, que el índice marca como fuera con grid.valid).
  */
 export const OROG_SRC = {
   ecmwf: { cat: 3, num: 4, k: 1 / 9.80665 },
   'icon-eu': { cat: 3, num: 6, k: 1 },
-  gfs: { cat: 3, num: 5, k: 1 }
+  gfs: { cat: 3, num: 5, k: 1 },
+  arome: { cat: 3, num: 6, k: 1, masked: true },
+  arpege: { cat: 3, num: 6, k: 1 }
 };
 export function pickOrog(msgs, model, grid) {
   const p = OROG_SRC[model];
@@ -111,7 +120,16 @@ export function pickOrog(msgs, model, grid) {
   if (!m) throw new Error('falta la altura del terreno');
   const h = extract(m, grid).map((v) => v * p.k);
   let lo = Infinity, hi = -Infinity;
-  for (const v of h) { if (!Number.isFinite(v)) throw new Error('altura del terreno con valores no válidos'); if (v < lo) lo = v; if (v > hi) hi = v; }
+  for (let i = 0; i < h.length; i++) {
+    const v = h[i];
+    if (!Number.isFinite(v)) {
+      if (p.masked) { h[i] = 0; continue; }
+      throw new Error('altura del terreno con valores no válidos');
+    }
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (!(hi >= lo)) throw new Error('altura del terreno con valores no válidos');
   // Comprobación grosso modo: en cualquiera de las tres zonas hay mar y montañas, y nada fuera de la Tierra.
   if (lo < -600 || hi > 9000 || hi - lo < 300) throw new Error(`altura del terreno no creíble (${Math.round(lo)} a ${Math.round(hi)} m)`);
   return h;

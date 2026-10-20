@@ -5,8 +5,12 @@
  * latitud-longitud regular (plantilla 3.0), producto en un instante o en un
  * intervalo (plantillas 4.0 y 4.8: la racha máxima y la lluvia acumulada) y dos
  * empaquetados: el simple (5.0, el de los recortes del filtro de NOMADS para
- * GFS) y el CCSDS (5.42, el de ECMWF y el DWD), sin mapa de bits. Cualquier
- * otra cosa da error en lugar de valores equivocados.
+ * GFS) y el CCSDS (5.42, el de ECMWF, el DWD y Météo-France), con o sin mapa
+ * de bits (AROME lo lleva; los puntos que no están salen NaN). Cualquier otra
+ * cosa da error en lugar de valores equivocados.
+ *
+ * peekGrib2 lee solo la cabecera de un mensaje (sus primeros cientos de
+ * bytes): sirve para recorrer un fichero remoto sin índice pidiendo trozos.
  */
 
 // GRIB2 guarda los enteros con signo como signo + magnitud, no en complemento a dos.
@@ -144,6 +148,64 @@ export function aecDecode(bytes, start, end, n, bps, block, rsi, flags) {
 
 // ---------------------------------------------------------------------------
 
+// Sección 1: la hora de referencia (la de la pasada).
+const refTimeOf = (bytes, dv, o) => Date.UTC(dv.getUint16(o + 12), bytes[o + 14] - 1, bytes[o + 15], bytes[o + 16], bytes[o + 17], bytes[o + 18]);
+
+// Sección 4: qué campo es y de cuándo (en m: cat, num, hour, surface, level y, en un intervalo, start, span y stat).
+function product(bytes, dv, o, m) {
+  // 4.0: en un instante; 4.8: en un intervalo (la racha máxima de la última hora o las últimas horas,
+  // o la lluvia acumulada desde el principio de la pasada o de un tramo de 6 h).
+  const tmpl = dv.getUint16(o + 7);
+  if (tmpl !== 0 && tmpl !== 8) throw new Error(`GRIB2: producto ${tmpl} no admitido`);
+  // Horas (NOAA, ECMWF, Météo-France) o minutos (DWD).
+  const hours = (unit, v) => {
+    if (unit === 1) return v;
+    if (unit === 0) return v / 60;
+    throw new Error(`GRIB2: unidad de tiempo ${unit} (solo horas o minutos)`);
+  };
+  m.cat = bytes[o + 9];
+  m.num = bytes[o + 10];
+  m.hour = hours(bytes[o + 17], dv.getUint32(o + 18));
+  m.surface = bytes[o + 22];
+  m.level = dv.getUint32(o + 24) / 10 ** sm8(bytes[o + 23]);
+  if (tmpl === 8) {
+    // La «hora de previsión» de esta plantilla es el PRINCIPIO del intervalo (la lluvia acumulada
+    // desde la pasada tiene 0; la de un tramo de 6 h de GFS, 6, 12…); el final es esa hora más la
+    // duración del primer intervalo, y esa es la hora válida del campo.
+    if (bytes[o + 41] < 1) throw new Error('GRIB2: intervalo no admitido');
+    m.start = m.hour;
+    m.stat = bytes[o + 46];
+    m.span = hours(bytes[o + 48], dv.getUint32(o + 49));
+    m.hour += m.span;
+  }
+}
+
+/**
+ * La cabecera del mensaje que empieza en `bytes` (bastan sus primeros cientos
+ * de bytes): { length, discipline, refTime, cat, num, hour, surface, level… },
+ * sin la rejilla ni los valores. Si faltan bytes para la sección 4, error; si
+ * el producto es de un tipo que no se lee, `unsupported` dice cuál (para
+ * recorrer un fichero basta con `length`).
+ */
+export function peekGrib2(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length < 16 || String.fromCharCode(...bytes.subarray(0, 4)) !== 'GRIB') throw new Error('GRIB2: no empieza por GRIB');
+  if (bytes[7] !== 2) throw new Error(`GRIB2: edición ${bytes[7]}`);
+  const m = { length: Number(dv.getBigUint64(8)), discipline: bytes[6] };
+  for (let o = 16; o + 5 <= bytes.length;) {
+    const len = dv.getUint32(o), sec = bytes[o + 4];
+    if (!len || o + len > bytes.length) break;
+    if (sec === 1) m.refTime = refTimeOf(bytes, dv, o);
+    if (sec === 4) {
+      try { product(bytes, dv, o, m); } catch (e) { m.unsupported = e.message; }
+      return m;
+    }
+    o += len;
+  }
+  throw new Error('GRIB2: cabecera cortada');
+}
+
 /**
  * Devuelve los mensajes del fichero: { refTime, hour, cat, num, surface, level, grid, values }.
  * En los productos de intervalo (4.8) `hour` es el final del intervalo y además
@@ -161,11 +223,11 @@ export function parseGrib2(input) {
     const total = Number(dv.getBigUint64(p + 8));
     if (p + total > bytes.length) throw new Error('GRIB2: mensaje cortado');
     const m = { discipline: bytes[p + 6] };
-    let o = p + 16, pack = null;
+    let o = p + 16, pack = null, bitmap = null;
     while (o < p + total - 4) {
       const len = dv.getUint32(o), sec = bytes[o + 4];
       if (sec === 1) {
-        m.refTime = Date.UTC(dv.getUint16(o + 12), bytes[o + 14] - 1, bytes[o + 15], bytes[o + 16], bytes[o + 17], bytes[o + 18]);
+        m.refTime = refTimeOf(bytes, dv, o);
       } else if (sec === 3) {
         if (dv.getUint16(o + 12) !== 0) throw new Error(`GRIB2: rejilla ${dv.getUint16(o + 12)} (solo latitud-longitud)`);
         if (dv.getUint32(o + 38) !== 0 && dv.getUint32(o + 38) !== 0xffffffff) throw new Error('GRIB2: ángulo base distinto de 0');
@@ -177,38 +239,16 @@ export function parseGrib2(input) {
           scan: bytes[o + 71]
         };
       } else if (sec === 4) {
-        // 4.0: en un instante; 4.8: en un intervalo (la racha máxima de la última hora o las últimas horas,
-        // o la lluvia acumulada desde el principio de la pasada o de un tramo de 6 h).
-        const tmpl = dv.getUint16(o + 7);
-        if (tmpl !== 0 && tmpl !== 8) throw new Error(`GRIB2: producto ${tmpl} no admitido`);
-        // Horas (NOAA, ECMWF) o minutos (DWD).
-        const hours = (unit, v) => {
-          if (unit === 1) return v;
-          if (unit === 0) return v / 60;
-          throw new Error(`GRIB2: unidad de tiempo ${unit} (solo horas o minutos)`);
-        };
-        m.cat = bytes[o + 9];
-        m.num = bytes[o + 10];
-        m.hour = hours(bytes[o + 17], dv.getUint32(o + 18));
-        m.surface = bytes[o + 22];
-        m.level = dv.getUint32(o + 24) / 10 ** sm8(bytes[o + 23]);
-        if (tmpl === 8) {
-          // La «hora de previsión» de esta plantilla es el PRINCIPIO del intervalo (la lluvia acumulada
-          // desde la pasada tiene 0; la de un tramo de 6 h de GFS, 6, 12…); el final es esa hora más la
-          // duración del primer intervalo, y esa es la hora válida del campo.
-          if (bytes[o + 41] < 1) throw new Error('GRIB2: intervalo no admitido');
-          m.start = m.hour;
-          m.stat = bytes[o + 46];
-          m.span = hours(bytes[o + 48], dv.getUint32(o + 49));
-          m.hour += m.span;
-        }
+        product(bytes, dv, o, m);
       } else if (sec === 5) {
         const tmpl = dv.getUint16(o + 9);
         if (tmpl !== 0 && tmpl !== 42) throw new Error(`GRIB2: empaquetado ${tmpl} (solo simple o CCSDS)`);
         pack = { tmpl, n: dv.getUint32(o + 5), R: dv.getFloat32(o + 11), E: sm16(dv, o + 15), D: sm16(dv, o + 17), nbits: bytes[o + 19] };
         if (tmpl === 42) Object.assign(pack, { flags: bytes[o + 21], block: bytes[o + 22], rsi: dv.getUint16(o + 23) });
       } else if (sec === 6) {
-        if (bytes[o + 5] !== 255) throw new Error('GRIB2: con mapa de bits');
+        // 255: sin mapa de bits; 0: el mapa va aquí, un bit por punto (1 = hay valor).
+        if (bytes[o + 5] === 0) bitmap = bytes.subarray(o + 6, o + len);
+        else if (bytes[o + 5] !== 255) throw new Error(`GRIB2: mapa de bits ${bytes[o + 5]} no admitido`);
       } else if (sec === 7) {
         if (!pack) throw new Error('GRIB2: datos sin sección 5');
         const x = pack.tmpl === 42 && pack.nbits
@@ -216,8 +256,19 @@ export function parseGrib2(input) {
           : unpackSimple(bytes, o + 5, o + len, pack.n, pack.nbits);
         // Y = (R + X · 2^E) / 10^D
         const k2 = 2 ** pack.E, k10 = 10 ** -pack.D;
-        m.values = new Float32Array(pack.n);
-        for (let i = 0; i < pack.n; i++) m.values[i] = (pack.R + x[i] * k2) * k10;
+        const packed = new Float32Array(pack.n);
+        for (let i = 0; i < pack.n; i++) packed[i] = (pack.R + x[i] * k2) * k10;
+        if (!bitmap) m.values = packed;
+        else {
+          // Los valores van solo para los puntos marcados; el resto, NaN.
+          if (!m.grid) throw new Error('GRIB2: mapa de bits sin rejilla');
+          const n = m.grid.ni * m.grid.nj;
+          if (bitmap.length * 8 < n) throw new Error('GRIB2: mapa de bits corto');
+          m.values = new Float32Array(n);
+          let k = 0;
+          for (let i = 0; i < n; i++) m.values[i] = bitmap[i >> 3] & (0x80 >> (i & 7)) ? (k < pack.n ? packed[k++] : (k++, NaN)) : NaN;
+          if (k !== pack.n) throw new Error('GRIB2: el mapa de bits no cuadra con los datos');
+        }
       }
       o += len;
     }

@@ -255,9 +255,13 @@
     'viento.model': 'Modelo',
     'viento.m.ecmwf': 'Centro Europeo (ECMWF) · unos 25 km · cada 3 h, 4 días',
     'viento.m.icon-eu': 'Servicio meteorológico alemán (DWD) · unos 7 km · península y Baleares · 3 días',
+    'viento.m.arome': 'Météo-France · unos 2,5 km · península (sin el sur de Andalucía) y Baleares · 2 días',
+    'viento.m.arpege': 'Météo-France · unos 10 km · península, Baleares y Canarias · 4 días',
     'viento.m.gfs': 'NOAA (Estados Unidos) · unos 25 km · cada hora, 2 días',
     'viento.src.ecmwf': 'Modelo IFS del Centro Europeo de Previsión a Plazo Medio (© ECMWF, CC BY 4.0; datos procesados), pasada del {day} a las {time}. Rejilla de 0,25° (unos 25 km), cada 3 horas. Suele ser el modelo global más fiable, pero suaviza el relieve: en valles, costas y montañas el viento real puede ser bastante distinto. Viento medio a 10 m del suelo y racha máxima de la última hora (de las últimas 3 horas a partir del cuarto día).',
     'viento.src.icon-eu': 'Modelo ICON-EU del servicio meteorológico alemán (© Deutscher Wetterdienst, CC BY 4.0; datos procesados), pasada del {day} a las {time}. Rejilla de unos 7 km, solo en la península, Baleares y alrededores (no llega a Canarias); cada hora hasta 48 horas y después cada 3. Con más detalle que los modelos globales, recoge mejor el relieve, aunque los valles estrechos y las brisas muy locales se le pueden escapar. Viento medio a 10 m del suelo y racha máxima de la última hora.',
+    'viento.src.arome': 'Modelo AROME de Météo-France (Licence Ouverte 2.0; datos procesados), pasada del {day} a las {time}. Rejilla de 0,025° (unos 2,5 km), cada hora hasta 51 horas. Cubre la península hasta Córdoba, Murcia y Alicante, y Baleares: no llega a Jaén, Granada, Almería, Málaga, Sevilla, Cádiz, Huelva, Ceuta, Melilla ni Canarias. Es el modelo con más detalle, el que mejor recoge el relieve, las brisas y las tormentas, aunque solo para los dos próximos días. Viento medio a 10 m del suelo y racha máxima de la última hora.',
+    'viento.src.arpege': 'Modelo ARPEGE de Météo-France (Licence Ouverte 2.0; datos procesados), pasada del {day} a las {time}. Rejilla de 0,1° (unos 10 km) sobre la península, Baleares, Canarias y alrededores, cada hora hasta 102 horas. Más detallado que los modelos globales de 25 km y con más días que AROME. Viento medio a 10 m del suelo y racha máxima de la última hora.',
     'viento.src.gfs': 'Modelo GFS de NOAA (dominio público), pasada del {day} a las {time}. Viento medio a 10 m del suelo y rachas, en una rejilla de 0,25° (unos 25 km): el modelo suaviza el relieve, así que en valles, costas y montañas el viento real puede ser bastante distinto.',
     'viento.srcMet': 'La lluvia y la temperatura a 2 m salen del mismo modelo y de la misma pasada. La lluvia es la media por hora del tramo anterior a cada hora (el modelo la acumula; con nieve, en agua equivalente): en una rejilla así no distingue chubascos o tormentas locales y puede colocar la lluvia algo desplazada. La temperatura es la del aire a 2 m sin corregir por la altitud, así que en la montaña y en los valles puede diferir de la real.',
     'viento.legend.rain': 'Lluvia media por hora',
@@ -589,7 +593,7 @@
     'set.sourceCode': 'Código fuente',
     'set.license': 'Licencia',
     'set.sources': 'Datos',
-    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), solo en Europa. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Previsión de viento, lluvia y temperatura: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0) y NOAA (GFS). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
+    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), solo en Europa. Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Previsión de viento, lluvia y temperatura: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0), Météo-France (AROME y ARPEGE, Licence Ouverte 2.0) y NOAA (GFS). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tu ubicación solo se guarda en este ordenador.',
     'set.shortcuts': 'Atajos',
     'set.shortcutsText': 'Espacio: reproducir/pausar · ← →: fotograma · Fin: último · ⌘/Ctrl+,: ajustes',
     // Widget
@@ -625,7 +629,7 @@
     'web.alertsOn': 'Avisos del navegador activados.',
     'web.alertsBlocked': 'El navegador tiene bloqueados los avisos de esta página.',
     'web.privacy': 'Privacidad',
-    'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; datos procesados para el mapa y los avisos). Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Previsión de viento, lluvia y temperatura: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0) y NOAA (GFS). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.',
+    'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; datos procesados para el mapa y los avisos). Previsión y búsqueda: Open-Meteo. Rayos: EUMETSAT (Meteosat-12, CC BY 4.0). Previsión de viento, lluvia y temperatura: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0), Météo-France (AROME y ARPEGE, Licence Ouverte 2.0) y NOAA (GFS). Mapas: OpenFreeMap, OpenMapTiles y OpenStreetMap. Tus ubicaciones solo se guardan en este navegador.',
   };
 
   const en = {
@@ -869,9 +873,13 @@
     'viento.model': 'Model',
     'viento.m.ecmwf': 'European Centre (ECMWF) · about 25 km · every 3 h, 4 days',
     'viento.m.icon-eu': 'German weather service (DWD) · about 7 km · Iberian Peninsula and Balearics · 3 days',
+    'viento.m.arome': 'Météo-France · about 2.5 km · Iberian Peninsula (except southern Andalusia) and Balearics · 2 days',
+    'viento.m.arpege': 'Météo-France · about 10 km · Iberian Peninsula, Balearics and Canary Islands · 4 days',
     'viento.m.gfs': 'NOAA (United States) · about 25 km · hourly, 2 days',
     'viento.src.ecmwf': 'IFS model of the European Centre for Medium-Range Weather Forecasts (© ECMWF, CC BY 4.0; processed data), run of {day} at {time}. 0.25° grid (about 25 km), every 3 hours. It is usually the most reliable global model, but it smooths out the terrain: in valleys, on coasts and in the mountains the real wind can be quite different. Mean wind 10 m above the ground and maximum gust in the last hour (in the last 3 hours from day four).',
     'viento.src.icon-eu': 'ICON-EU model of the German weather service (© Deutscher Wetterdienst, CC BY 4.0; processed data), run of {day} at {time}. Grid of about 7 km, only over the Iberian Peninsula, the Balearics and surroundings (it does not reach the Canary Islands); hourly up to 48 hours and then every 3. With more detail than the global models it captures the terrain better, although narrow valleys and very local breezes can still escape it. Mean wind 10 m above the ground and maximum gust in the last hour.',
+    'viento.src.arome': 'Météo-France AROME model (Licence Ouverte 2.0; processed data), run of {day} at {time}. 0.025° grid (about 2.5 km), hourly up to 51 hours. It covers the Iberian Peninsula down to Córdoba, Murcia and Alicante, and the Balearics: it does not reach Jaén, Granada, Almería, Málaga, Seville, Cádiz, Huelva, Ceuta, Melilla or the Canary Islands. It is the most detailed model and the one that best captures terrain, breezes and storms, but only for the next two days. Mean wind 10 m above the ground and maximum gust in the last hour.',
+    'viento.src.arpege': 'Météo-France ARPEGE model (Licence Ouverte 2.0; processed data), run of {day} at {time}. 0.1° grid (about 10 km) over the Iberian Peninsula, the Balearics, the Canary Islands and surroundings, hourly up to 102 hours. More detailed than the 25 km global models and with more days than AROME. Mean wind 10 m above the ground and maximum gust in the last hour.',
     'viento.src.gfs': 'NOAA GFS model (public domain), run of {day} at {time}. Mean wind 10 m above the ground and gusts, on a 0.25° grid (about 25 km): the model smooths out the terrain, so in valleys, on coasts and in the mountains the real wind can be quite different.',
     'viento.srcMet': 'Rain and 2 m temperature come from the same model and run. Rain is the hourly mean over the period before each time (the model accumulates it; snow counts as water equivalent): on a grid like this it cannot tell local showers or storms apart and may place the rain somewhat off. Temperature is the 2 m air temperature without any correction for altitude, so in the mountains and valleys it can differ from the real one.',
     'viento.legend.rain': 'Mean rain per hour',
@@ -1202,7 +1210,7 @@
     'set.sourceCode': 'Source code',
     'set.license': 'Licence',
     'set.sources': 'Data',
-    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), Europe only. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Wind, rain and temperature forecast: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0) and NOAA (GFS). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
+    'set.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0), Europe only. Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Wind, rain and temperature forecast: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0), Météo-France (AROME and ARPEGE, Licence Ouverte 2.0) and NOAA (GFS). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your location is only stored on this computer.',
     'set.shortcuts': 'Shortcuts',
     'set.shortcutsText': 'Space: play/pause · ← →: frame · End: latest · ⌘/Ctrl+,: settings',
     // Widget
@@ -1238,7 +1246,7 @@
     'web.alertsOn': 'Browser notifications are on.',
     'web.alertsBlocked': 'Notifications for this page are blocked in your browser.',
     'web.privacy': 'Privacy',
-    'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; data processed for the map and alerts). Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Wind, rain and temperature forecast: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0) and NOAA (GFS). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.',
+    'web.sourcesText': 'Radar: EUMETNET OPERA (CC BY 4.0; data processed for the map and alerts). Forecast and search: Open-Meteo. Lightning: EUMETSAT (Meteosat-12, CC BY 4.0). Wind, rain and temperature forecast: ECMWF (CC BY 4.0), DWD (ICON-EU, CC BY 4.0), Météo-France (AROME and ARPEGE, Licence Ouverte 2.0) and NOAA (GFS). Maps: OpenFreeMap, OpenMapTiles and OpenStreetMap. Your locations are only stored in this browser.',
   };
 
   const DICTS = { es, en };

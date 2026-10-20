@@ -291,7 +291,7 @@ test('viento: escala Beaufort y colores', () => {
 });
 
 test('viento: las rejillas publicadas (ECMWF y GFS en Europa con Canarias; ICON-EU en la península)', () => {
-  assert.deepEqual(W.MODELS.map((m) => m.id), ['ecmwf', 'icon-eu', 'gfs']);
+  assert.deepEqual(W.MODELS.map((m) => m.id), ['ecmwf', 'icon-eu', 'arome', 'arpege', 'gfs']);
   const grid = (id) => W.MODELS.find((m) => m.id === id).grid;
   const g = grid('ecmwf');
   assert.deepEqual(g, { west: -32, north: 72, step: 0.25, cols: 309, rows: 181 });
@@ -308,6 +308,100 @@ test('viento: las rejillas publicadas (ECMWF y GFS en Europa con Canarias; ICON-
   assert.ok(!at(ic, 28.1, -15.4), 'Canarias, fuera de ICON-EU');
   // Los puntos de la zona de ICON-EU coinciden con los de su rejilla (29,5 N, 23,5 O, cada 0,0625°).
   for (const v of [(ic.north - 29.5) / ic.step, (ic.west + 23.5) / ic.step]) assert.equal(v, Math.round(v));
+});
+
+test('viento: AROME y ARPEGE (Météo-France), recortes que caen en los puntos de sus rejillas', () => {
+  const grid = (id) => W.MODELS.find((m) => m.id === id).grid;
+  const at = (gr, lat, lon) => W.cell(gr, lat, lon) !== null;
+  const ar = grid('arome');
+  assert.deepEqual(ar, { west: -9.5, north: 44.5, step: 0.025, cols: 581, rows: 281 });
+  // AROME (EURW1S40): de 55,4 N a 37,5 N y de 12 O a 16 E, cada 0,025°.
+  for (const v of [(55.4 - ar.north) / ar.step, (ar.west + 12) / ar.step]) assert.ok(Math.abs(v - Math.round(v)) < 1e-9, String(v));
+  assert.ok(Math.abs(ar.north - (ar.rows - 1) * ar.step - 37.5) < 1e-9, 'acaba donde acaba AROME');
+  for (const [name, lat, lon] of [['Madrid', 40.4, -3.7], ['Palma', 39.6, 2.65], ['A Coruña', 43.4, -8.4], ['Vigo', 42.24, -8.72], ['Girona', 42.0, 2.8], ['Córdoba', 37.9, -4.8]]) assert.ok(at(ar, lat, lon), name);
+  assert.ok(!at(ar, 37.39, -5.98), 'Sevilla queda al sur de AROME');
+  const ap = grid('arpege');
+  assert.deepEqual(ap, { west: -19, north: 44.5, step: 0.1, cols: 241, rows: 176 });
+  // ARPEGE (EURAT01): de 72 N a 20 N y de 32 O a 42 E, cada 0,1°.
+  for (const v of [(72 - ap.north) / ap.step, (ap.west + 32) / ap.step]) assert.ok(Math.abs(v - Math.round(v)) < 1e-9, String(v));
+  for (const [name, lat, lon] of [['Las Palmas', 28.1, -15.4], ['El Hierro', 27.75, -18.0], ['Sevilla', 37.39, -5.98], ['Mahón', 39.9, 4.26], ['Melilla', 35.3, -2.9]]) assert.ok(at(ap, lat, lon), name);
+});
+
+test('viento: zona con datos de una rejilla que no la tiene entera (AROME)', () => {
+  const grid = { west: 0, north: 3, step: 1, cols: 4, rows: 4 };
+  // La columna 0 no tiene datos en las filas 2 y 3 (como el borde oeste de AROME), y la fila 3 está vacía del todo.
+  const f = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, NaN, 10, 11, 12, NaN, NaN, NaN, NaN]);
+  const valid = W.validRows(f, grid);
+  assert.deepEqual(valid, [[0, 3], [0, 3], [1, 3], null]);
+  assert.equal(W.validRows(new Float32Array(16).fill(1), grid), null, 'entera: sin nada');
+  const g = { ...grid, valid };
+  const a = W.mask(new Float32Array(16).fill(5), g);
+  assert.deepEqual(Array.from(a).map((x) => (Number.isNaN(x) ? null : x)), [5, 5, 5, 5, 5, 5, 5, 5, null, 5, 5, 5, null, null, null, null]);
+  assert.ok(W.cell(g, 2.5, 0.5), 'arriba a la izquierda');
+  assert.equal(W.cell(g, 1.5, 0.5), null, 'la celda toca un punto sin datos');
+  assert.ok(W.cell(g, 1.5, 1.5));
+  assert.equal(W.cell(g, 0.5, 2), null, 'la última fila no tiene datos');
+  // Lo publicado se lee con NaN fuera de la zona; las muestras ahí son null.
+  const u = new Float32Array(16).fill(3), v = new Float32Array(16).fill(-2), gust = new Float32Array(16).fill(6);
+  const d = W.decode(W.encode({ u, v, gust }, grid), g);
+  assert.ok(Number.isNaN(d.u[8]) && Number.isNaN(d.gust[15]) && d.u[9] === 3);
+  assert.equal(W.sample(d, g, 1.5, 0.5), null);
+  assert.equal(W.sample(d, g, 2.5, 2.5).speed, Math.hypot(3, 2));
+  const met = M.decode(M.encode({ rain: new Float32Array(16).fill(1), temp: new Float32Array(16).fill(20) }, grid), g);
+  assert.ok(Number.isNaN(met.temp[12]) && met.temp[0] === 20);
+  assert.equal(M.sample(met, g, 0.5, 2), null);
+});
+
+test('viento: el lector GRIB2 lee mensajes con mapa de bits y solo la cabecera', async () => {
+  const { parseGrib2, peekGrib2 } = await grib();
+  const buf = fs.readFileSync(FIXTURE);
+  const total = Number(buf.readBigUInt64BE(8));
+  const msg = buf.subarray(0, total);
+  const [orig] = parseGrib2(msg);
+
+  // Cabecera sola: lo que hace falta para recorrer un fichero sin índice.
+  const head = peekGrib2(msg.subarray(0, 300));
+  assert.equal(head.length, total);
+  assert.deepEqual([head.cat, head.num, head.hour, head.surface, head.level, head.refTime], [orig.cat, orig.num, orig.hour, orig.surface, orig.level, orig.refTime]);
+  assert.throws(() => peekGrib2(msg.subarray(0, 40)), /cortada/);
+  // Un producto que no se sabe leer no corta el recorrido: se sabe su longitud.
+  const odd = Buffer.from(msg.subarray(0, 300));
+  let o4 = 16;
+  while (odd[o4 + 4] !== 4) o4 += odd.readUInt32BE(o4);
+  odd.writeUInt16BE(11, o4 + 7);
+  assert.equal(peekGrib2(odd).length, total);
+  assert.match(peekGrib2(odd).unsupported, /producto 11/);
+  assert.throws(() => peekGrib2(Buffer.from('<html>404</html>')), /GRIB/);
+
+  // El mismo mensaje con un mapa de bits que quita uno de cada tres puntos: esos salen NaN y el resto igual.
+  const secs = [];
+  for (let o = 16; o < total - 4; o += msg.readUInt32BE(o)) secs.push(msg.subarray(o, o + msg.readUInt32BE(o)));
+  const s5 = secs.find((x) => x[4] === 5), s6 = secs.find((x) => x[4] === 6), s7 = secs.find((x) => x[4] === 7);
+  const n = s5.readUInt32BE(5), nbits = s5[19];
+  const ints = [];
+  for (let i = 0, bit = 5 * 8; i < n; i++) { let v = 0; for (let k = 0; k < nbits; k++, bit++) v = v * 2 + ((s7[bit >> 3] >> (7 - (bit & 7))) & 1); ints.push(v); }
+  const keep = ints.map((_, i) => i % 3 !== 1);
+  const kept = ints.filter((_, i) => keep[i]);
+  const bm = Buffer.alloc(6 + Math.ceil(n / 8));
+  bm.writeUInt32BE(bm.length, 0); bm[4] = 6; bm[5] = 0;
+  keep.forEach((k, i) => { if (k) bm[6 + (i >> 3)] |= 0x80 >> (i & 7); });
+  const n5 = Buffer.from(s5);
+  n5.writeUInt32BE(kept.length, 5);
+  const w = new BitWriter();
+  for (const v of kept) w.put(v, nbits);
+  const n7 = Buffer.concat([Buffer.from([0, 0, 0, 0, 7]), Buffer.from(w.bytes())]);
+  n7.writeUInt32BE(n7.length, 0);
+  const body = Buffer.concat(secs.map((x) => (x === s5 ? n5 : x === s6 ? bm : x === s7 ? n7 : x)));
+  const h0 = Buffer.from(msg.subarray(0, 16));
+  h0.writeBigUInt64BE(BigInt(16 + body.length + 4), 8);
+  const [b] = parseGrib2(Buffer.concat([h0, body, Buffer.from('7777')]));
+  assert.equal(b.values.length, orig.values.length);
+  b.values.forEach((x, i) => { if (keep[i]) assert.equal(x, orig.values[i]); else assert.ok(Number.isNaN(x), `punto ${i}`); });
+  // Un mapa de bits que no cuadra con el número de valores es un error, no valores corridos.
+  const n5b = Buffer.from(n5);
+  n5b.writeUInt32BE(kept.length - 1, 5);
+  const bad = Buffer.concat([h0, Buffer.concat(secs.map((x) => (x === s5 ? n5b : x === s6 ? bm : x === s7 ? n7 : x))), Buffer.from('7777')]);
+  assert.throws(() => parseGrib2(bad), /mapa de bits/);
 });
 
 test('viento: el generador copia la pasada ya publicada si NOAA no tiene otra', async (t) => {

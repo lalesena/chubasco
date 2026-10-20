@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Chubasco © 2026 lalesena · https://github.com/lalesena/chubasco · término adicional 7(b) en NOTICE
 /* Modo «Previsión»: el viento, la lluvia o la temperatura de un modelo (ECMWF,
- * ICON-EU o GFS) sobre el mapa, en tres pestañas. El viento lleva partículas
+ * ICON-EU, AROME, ARPEGE o GFS) sobre el mapa, en tres pestañas. El viento lleva partículas
  * que lo siguen y el fondo coloreado por la velocidad (o por las rachas); la
  * lluvia, los colores del radar; la temperatura, una escala divergente. Con
  * una línea de tiempo y, en el panel, el valor en la ubicación activa o en el
@@ -25,12 +25,16 @@
   const MAX_ZOOM = 7;       // al entrar: más cerca, la rejilla de 25 km se ve a manchas
   const LEGEND_MAX = 35;    // m/s al final de la leyenda
   const CC_BY = '<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>';
+  const LO2 = '<a href="https://www.etalab.gouv.fr/licence-ouverte-open-licence/">Licence Ouverte 2.0</a>';
   // Atribución en el mapa de cada modelo (ECMWF y el DWD piden la licencia y avisar de que los datos están procesados);
   // `what` es lo que se ve en la pestaña (viento, lluvia o temperatura).
   const ATTR = {
     ecmwf: (t, what) => `${what} <a href="https://www.ecmwf.int/">ECMWF</a> IFS (${CC_BY}, ${t('map.processed')})`,
     'icon-eu': (t, what) => `${what} ICON-EU © <a href="https://www.dwd.de/">DWD</a> (${CC_BY}, ${t('map.processed')})`,
-    gfs: (t, what) => `${what} <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast">GFS</a> (NOAA)`
+    gfs: (t, what) => `${what} <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast">GFS</a> (NOAA)`,
+    // Licence Ouverte 2.0: la fuente (Météo-France) y la fecha de la pasada, que va en el panel.
+    arome: (t, what) => `${what} AROME © <a href="https://meteofrance.com/">Météo-France</a> (${LO2}, ${t('map.processed')})`,
+    arpege: (t, what) => `${what} ARPEGE © <a href="https://meteofrance.com/">Météo-France</a> (${LO2}, ${t('map.processed')})`
   };
   const MODEL_KEY = 'chubasco.viento.modelo';
   function savedModel() {
@@ -1030,7 +1034,7 @@
       await loadIndex(true);
       if (!st.open || st.model !== id || !st.index) { render(); return; }
       pickSteps(keep);
-      // Si el mapa mira fuera de la zona del modelo (ICON-EU), se va a ella.
+      // Si el mapa mira fuera de la zona del modelo (ICON-EU, AROME, ARPEGE), se va a ella.
       const g = st.index.grid, c = map.getCenter();
       if (!WG.cell(g, c.lat, c.lng)) map.setView([g.north - ((g.rows - 1) * g.step) / 2, g.west + ((g.cols - 1) * g.step) / 2], 6);
       goTo(st.cur);

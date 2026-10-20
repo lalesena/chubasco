@@ -25,6 +25,13 @@
   // Baleares, el sur de Francia y el norte de Marruecos: toda Europa pesaría
   // unas 15 veces más. Canarias queda fuera de la zona del modelo (empieza en 29,5° N).
   const ICON_DOMAIN = { west: -10.5, east: 6, south: 34.5, north: 46, step: 0.0625 };
+  // AROME de Météo-France (0,025°, unos 2,5 km): sus bordes oeste y sur son curvos
+  // (los de su proyección; por el sur llega a 37,5° N en Portugal y a unos 38° N en
+  // Murcia, sin el sur de Andalucía), así que su índice dice en cada fila qué
+  // columnas tienen datos (grid.valid).
+  const AROME_DOMAIN = { west: -9.5, east: 5, south: 37.5, north: 44.5, step: 0.025 };
+  // ARPEGE de Météo-France (0,1°, unos 10 km): la península, Baleares y Canarias.
+  const ARPEGE_DOMAIN = { west: -19, east: 5, south: 27, north: 44.5, step: 0.1 };
   const SCALE = 0.5; // m/s por unidad
 
   function gridOf(d = DOMAIN) {
@@ -39,8 +46,37 @@
   const MODELS = [
     { id: 'ecmwf', name: 'ECMWF', grid: gridOf(DOMAIN) },
     { id: 'icon-eu', name: 'ICON-EU', grid: gridOf(ICON_DOMAIN) },
+    { id: 'arome', name: 'AROME', grid: gridOf(AROME_DOMAIN) },
+    { id: 'arpege', name: 'ARPEGE', grid: gridOf(ARPEGE_DOMAIN) },
     { id: 'gfs', name: 'GFS', grid: gridOf(DOMAIN) }
   ];
+
+  /**
+   * Zona con datos de una rejilla que no la tiene entera (AROME): en cada fila,
+   * la primera y la última columna con valor ([c0, c1], o null si ninguna), a
+   * partir de un campo con NaN donde no hay datos. null si está entera.
+   */
+  function validRows(field, grid) {
+    const rows = [];
+    let whole = true;
+    for (let r = 0; r < grid.rows; r++) {
+      let c0 = -1, c1 = -1;
+      for (let c = 0; c < grid.cols; c++) if (Number.isFinite(field[r * grid.cols + c])) { if (c0 < 0) c0 = c; c1 = c; }
+      rows.push(c0 < 0 ? null : [c0, c1]);
+      if (c0 !== 0 || c1 !== grid.cols - 1) whole = false;
+    }
+    return whole ? null : rows;
+  }
+
+  /** Pone NaN (sin datos) fuera de la zona válida de la rejilla (grid.valid), si la tiene. */
+  function mask(arr, grid) {
+    if (!grid.valid) return arr;
+    for (let r = 0; r < grid.rows; r++) {
+      const v = grid.valid[r];
+      for (let c = 0; c < grid.cols; c++) if (!v || c < v[0] || c > v[1]) arr[r * grid.cols + c] = NaN;
+    }
+    return arr;
+  }
 
   // ----------------------------------------------------------------
   // Formato
@@ -78,7 +114,7 @@
           out[i] = (signed && q > 127 ? q - 256 : q) * scale;
         }
       }
-      return out;
+      return mask(out, grid);
     };
     const u = field(0, true), v = field(1, true), gust = field(2, false);
     const speed = new Float32Array(n);
@@ -104,11 +140,16 @@
   // ----------------------------------------------------------------
   // Interpolación
 
-  /** Posición continua (columna, fila) de un punto, o null si cae fuera. */
+  /** Posición continua (columna, fila) de un punto, o null si cae fuera (o donde la rejilla no tiene datos). */
   function cell(grid, lat, lon) {
     const c = (lon - grid.west) / grid.step;
     const r = (grid.north - lat) / grid.step;
     if (!(c >= 0 && r >= 0 && c <= grid.cols - 1 && r <= grid.rows - 1)) return null;
+    if (grid.valid) {
+      // Los cuatro puntos de alrededor (los de la interpolación) tienen que tener datos.
+      const c0 = Math.min(grid.cols - 2, Math.floor(c)), r0 = Math.min(grid.rows - 2, Math.floor(r));
+      for (const v of [grid.valid[r0], grid.valid[r0 + 1]]) if (!v || c0 < v[0] || c0 + 1 > v[1]) return null;
+    }
     return [c, r];
   }
 
@@ -181,5 +222,5 @@
   }
   const css = (ms) => `rgb(${color(ms).join(',')})`;
 
-  return { DOMAIN, ICON_DOMAIN, MODELS, SCALE, gridOf, encode, decode, gunzip, inflate, cell, bilinear, sample, BEAUFORT, beaufort, ANCHORS, color, colorTable, LUT_STEP, LUT_MAX, css };
+  return { DOMAIN, ICON_DOMAIN, AROME_DOMAIN, ARPEGE_DOMAIN, MODELS, SCALE, gridOf, validRows, mask, encode, decode, gunzip, inflate, cell, bilinear, sample, BEAUFORT, beaufort, ANCHORS, color, colorTable, LUT_STEP, LUT_MAX, css };
 });

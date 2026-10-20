@@ -48,7 +48,7 @@ jobs:
         run: |
           SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
           node --max-old-space-size=6144 scripts/agua/datos.mjs web/dist/agua "$SITE/agua"
-      # Viento, lluvia y temperatura para el modo «Previsión»: ECMWF, ICON-EU (DWD) y GFS
+      # Viento, lluvia y temperatura para el modo «Previsión»: ECMWF, ICON-EU (DWD), AROME y ARPEGE (Météo-France) y GFS
       # (NOAA). Si la pasada de un modelo no ha cambiado, o su fuente no responde, se copia la ya publicada.
       - name: Datos de la previsión
         continue-on-error: true

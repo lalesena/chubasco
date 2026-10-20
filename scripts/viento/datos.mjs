@@ -19,7 +19,7 @@
  *    publicada y solo se pide a la fuente si falta. Es un añadido: si no se
  *    consigue, el resto se publica igual y `orog` no sale en index.json.
  *
- * Modelos (los tres permiten reutilizar los datos):
+ * Modelos (todos permiten reutilizar los datos):
  *  - ecmwf: ECMWF IFS 0,25° (CC BY 4.0), de data.ecmwf.int: el índice de cada
  *    fichero dice dónde está cada variable y se piden solo esos trozos. Cada 3 h
  *    hasta +96 h.
@@ -28,7 +28,14 @@
  *    +48 h y cada 3 h hasta +78 h; solo la península y alrededores.
  *  - gfs: GFS 0,25° de NOAA (dominio público), con el filtro de NOMADS, que
  *    recorta Europa y deja solo las variables pedidas. Cada hora hasta +54 h.
- * Los tres salen cuatro veces al día (00, 06, 12 y 18 UTC, unas horas después):
+ *  - arome y arpege: AROME 0,025° (península sin el sur de Andalucía y Baleares,
+ *    cada hora hasta +51 h) y ARPEGE 0,1° (península, Baleares y Canarias, cada
+ *    hora hasta +102 h) de Météo-France (Licence Ouverte 2.0), del almacén
+ *    abierto de meteo.data.gouv.fr: paquetes de 6 o 12 horas con muchas
+ *    variables y sin índice, así que se leen las cabeceras de sus mensajes (1 kB
+ *    cada una) y se piden solo los que hacen falta. La zona de AROME no es un
+ *    rectángulo: su índice dice qué columnas tienen datos en cada fila.
+ * Todos salen al menos cuatro veces al día (00, 06, 12 y 18 UTC, unas horas después):
  * si la pasada más reciente ya es la publicada, se copian los ficheros de la
  * web en lugar de volver a pedirlos (y si esa pasada es de antes de que hubiera
  * lluvia y temperatura, solo se piden esas dos variables).
@@ -40,7 +47,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { parseGrib2, extract } from './grib2.mjs';
+import { parseGrib2, extract, peekGrib2 } from './grib2.mjs';
 import { pickMet, pickOrog, ratesFromAccumulated } from './met.mjs';
 
 const require = createRequire(import.meta.url);
@@ -63,6 +70,8 @@ const stepFile = (run, h) => `${run}/f${pad(h, 3)}.gz`;
 const metFile = (run, h) => `${run}/m${pad(h, 3)}.gz`;
 const sameMeta = (meta) => !!meta && JSON.stringify(meta) === JSON.stringify(M.META);
 const sameOrog = (meta) => !!meta && JSON.stringify(meta) === JSON.stringify(M.OROG);
+// La rejilla sin la zona válida (valid), que sale de los datos: lo que dice si dos son la misma.
+const baseGrid = (g) => g && { west: g.west, north: g.north, step: g.step, cols: g.cols, rows: g.rows };
 
 async function fetchOk(url, opts = {}, tries = 3) {
   for (let i = 1; ; i++) {
@@ -76,7 +85,8 @@ async function fetchOk(url, opts = {}, tries = 3) {
   }
 }
 const downloaded = new Map(); // servidor → bytes descargados (cada modelo tiene el suyo)
-const HOSTS = { gfs: 'nomads.ncep.noaa.gov', ecmwf: 'data.ecmwf.int', 'icon-eu': 'opendata.dwd.de' };
+const MF_HOST = 'meteofrance-pnt.s3.rbx.io.cloud.ovh.net';
+const HOSTS = { gfs: 'nomads.ncep.noaa.gov', ecmwf: 'data.ecmwf.int', 'icon-eu': 'opendata.dwd.de', arome: MF_HOST, arpege: MF_HOST };
 async function bytesOf(url, opts) {
   const res = await fetchOk(url, opts);
   if (res.status === 404) return null;
@@ -132,6 +142,109 @@ const WANT_ALL = { wind: true, met: true };
 const nomads = limiter(1000);
 const ecmwf = limiter(150);
 const dwd = limiter(100);
+const meteofrance = limiter(60);
+
+// ---------------------------------------------------------------------------
+// Météo-France: paquetes GRIB2 sin índice (ver arriba). Un paquete por grupo de
+// variables («SP1»: viento, racha, temperatura y lluvia en superficie; «SP2»,
+// entre otras, la altura del terreno) y por tramo de horas.
+
+const MF = {
+  arome: { dir: 'arome/0025', name: 'arome__0025', width: 2, packs: [[0, 6], [7, 12], [13, 18], [19, 24], [25, 30], [31, 36], [37, 42], [43, 48], [49, 51]] },
+  arpege: { dir: 'arpege/01', name: 'arpege__01', width: 3, packs: [[0, 12], [13, 24], [25, 36], [37, 48], [49, 60], [61, 72], [73, 84], [85, 96], [97, 102]] }
+};
+function mfUrl(id, run, pkg, h) {
+  const m = MF[id];
+  const [a, b] = m.packs.find(([a, b]) => h >= a && h <= b);
+  const iso = `${run.slice(0, 4)}-${run.slice(4, 6)}-${run.slice(6, 8)}T${run.slice(8, 10)}:00:00Z`;
+  return `https://${MF_HOST}/pnt/${iso}/${m.dir}/${pkg}/${m.name}__${pkg}__${pad(a, m.width)}H${pad(b, m.width)}H__${iso}.grib2`;
+}
+
+/**
+ * Cabeceras de los mensajes de un paquete, en orden: [{ off, length, discipline,
+ * cat, num, hour, surface, level… }] (ver peekGrib2), o null si aún no está.
+ * Con `until(e)`, para en cuanto encuentra un mensaje así.
+ */
+async function mfWalk(url, until = null) {
+  const out = [];
+  for (let off = 0, size = Infinity; off < size;) {
+    await meteofrance();
+    const res = await fetchOk(url, { headers: { Range: `bytes=${off}-${off + 1023}` } });
+    if (res.status === 404 || res.status === 403) {
+      if (!off) return null;
+      throw new Error(`HTTP ${res.status} a mitad del paquete`);
+    }
+    if (res.status === 416) break;
+    if (res.status !== 206) throw new Error(`HTTP ${res.status} (${MF_HOST})`);
+    const total = Number((res.headers.get('content-range') || '').split('/')[1]);
+    if (total > 0) size = total;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    downloaded.set(MF_HOST, (downloaded.get(MF_HOST) || 0) + buf.length);
+    const e = { off, ...peekGrib2(buf) };
+    out.push(e);
+    if (until && until(e)) break;
+    off += e.length;
+  }
+  return out;
+}
+const mfHeads = new Map(); // url → promesa de mfWalk (cada paquete se recorre una vez)
+function mfIndex(url) {
+  if (!mfHeads.has(url)) {
+    const p = mfWalk(url);
+    p.catch(() => mfHeads.delete(url));
+    mfHeads.set(url, p);
+  }
+  return mfHeads.get(url);
+}
+async function mfMessage(url, e) {
+  await meteofrance();
+  const b = await bytesOf(url, { headers: { Range: `bytes=${e.off}-${e.off + e.length - 1}` } });
+  if (!b || b.length !== e.length) throw new Error('mensaje incompleto');
+  return parseGrib2(b);
+}
+
+function meteoFrance(id, hours) {
+  const src = {
+    hours,
+    concurrency: 3,
+    valid: undefined, // columnas con datos de cada fila (W.validRows), del primer viento que se lee
+    async step(run, h, grid, want) {
+      const url = mfUrl(id, run, 'SP1', h);
+      const heads = await mfIndex(url);
+      if (!heads) return null;
+      // Lo instantáneo va sin `stat` (plantilla 4.0); la racha (máxima) y la lluvia (acumulada desde la pasada), en el intervalo que acaba en h.
+      const find = (cat, num, surface, level, label, ok = (e) => e.stat === undefined) => {
+        const e = heads.find((x) => x.discipline === 0 && x.cat === cat && x.num === num && x.surface === surface && (level === null || x.level === level) && x.hour === h && ok(x));
+        if (!e) throw new Error(`${id} +${h} h: falta ${label}`);
+        return mfMessage(url, e);
+      };
+      let wind = null;
+      if (want.wind) {
+        const msgs = [...await find(2, 2, 103, 10, 'u'), ...await find(2, 3, 103, 10, 'v')];
+        if (h > 0) msgs.push(...await find(2, 22, 103, 10, 'la racha', (e) => e.stat === 2));
+        if (src.valid === undefined) src.valid = W.validRows(extract(msgs[0], grid), grid);
+        wind = pickFields(msgs, grid, run, h, { u: U10, v: V10, gust: h > 0 ? GUST10 : null });
+      }
+      const met = want.met ? await soft(want, `${id} +${h} h`, async () => {
+        const msgs = [...await find(0, 0, 103, 2, 'la temperatura')];
+        if (h > 0) msgs.push(...await find(1, 52, 1, null, 'la lluvia', (e) => e.stat === 1 && e.start === 0));
+        return pickMet(msgs, id, grid, h, checker(run, h));
+      }) : null;
+      return { wind, met };
+    }
+  };
+  return src;
+}
+
+// La altura del terreno: en la hora 0 del primer paquete SP2 (en ARPEGE es el primer mensaje).
+async function mfOrog(id, run) {
+  const url = mfUrl(id, run, 'SP2', 0);
+  const isOrog = (e) => e.discipline === 0 && e.cat === 3 && e.num === 6 && e.surface === 1 && e.hour === 0;
+  const heads = await mfWalk(url, isOrog);
+  const e = heads && heads.find(isOrog);
+  if (!e) throw new Error(`${id}: falta la altura del terreno`);
+  return mfMessage(url, e);
+}
 
 // Cada fuente da, de una hora, { wind, met }: el viento ya codificado y la
 // temperatura con los acumulados de lluvia (ver met.mjs), según `want`; null si
@@ -238,6 +351,9 @@ const SOURCES = {
   }
 };
 
+SOURCES.arome = meteoFrance('arome', range(0, 51));
+SOURCES.arpege = meteoFrance('arpege', range(0, 102));
+
 // ---------------------------------------------------------------------------
 // Altura del terreno de cada modelo (una vez; ver met.mjs/pickOrog). Devuelve los mensajes GRIB2 del fichero.
 
@@ -279,7 +395,9 @@ const OROG = {
     const out = spawnSync('bzip2', ['-dc'], { input: bz, maxBuffer: 64 * 1024 * 1024 });
     if (out.status !== 0) throw new Error(`bzip2: ${out.error ? out.error.message : String(out.stderr).trim()}`);
     return parseGrib2(out.stdout);
-  }
+  },
+  arome: (run) => mfOrog('arome', run),
+  arpege: (run) => mfOrog('arpege', run)
 };
 
 /** Recoge las horas pedidas de una pasada, con varias peticiones a la vez, en `steps` (hora → resultado). */
@@ -393,7 +511,7 @@ async function model(id) {
   const t0 = Date.now();
   let prev = null;
   try { prev = JSON.parse(await readPrev(`${id}/index.json`)); } catch (e) { prev = null; }
-  if (prev && (prev.v !== 1 || prev.model !== id || JSON.stringify(prev.grid) !== JSON.stringify(grid))) prev = null; // otro formato o rejilla
+  if (prev && (prev.v !== 1 || prev.model !== id || JSON.stringify(baseGrid(prev.grid)) !== JSON.stringify(grid))) prev = null; // otro formato o rejilla
   const published = prev;
   log(`${id}: publicado ${prev ? prev.run : 'nada'}`);
 
@@ -445,7 +563,9 @@ async function model(id) {
   }
   if (orog) await fs.writeFile(path.join(dir, 'orog.gz'), orog);
   const withMet = list.some((e) => e.m);
-  const index = { v: 1, model: id, run, runTime: rt, generated: Date.now(), grid, scale: W.SCALE, ...(withMet ? { met: M.META } : {}), ...(orog ? { orog: 'orog.gz', orogMeta: M.OROG } : {}), steps: list };
+  // Una rejilla que no tiene datos en toda su zona (AROME): las columnas con datos de cada fila.
+  const valid = reused ? reused.grid.valid : SOURCES[id].valid;
+  const index = { v: 1, model: id, run, runTime: rt, generated: Date.now(), grid: valid ? { ...grid, valid } : grid, scale: W.SCALE, ...(withMet ? { met: M.META } : {}), ...(orog ? { orog: 'orog.gz', orogMeta: M.OROG } : {}), steps: list };
   await fs.writeFile(path.join(dir, 'index.json'), JSON.stringify(index));
   const mb = (downloaded.get(HOSTS[id]) || 0) / 1e6;
   log(`${id}: ${run}, ${list.length} horas, ${orog ? `terreno ${(orog.length / 1e3).toFixed(0)} kB, ` : 'sin altura del terreno, '}viento ${(bytes / 1e6).toFixed(1)} MB y lluvia y temperatura ${(metBytes / 1e6).toFixed(1)} MB (${list.filter((e) => e.m).length} horas); descargados ${mb.toFixed(0)} MB en ${Math.round((Date.now() - t0) / 1000)} s`);
