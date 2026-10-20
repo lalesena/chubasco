@@ -115,6 +115,7 @@ class Monitor {
     this.runningSince = Date.now();
     try {
       await this.refreshFrames(true);
+      this.emit(); // el mapa empieza a cargar el radar sin esperar al análisis
       const locs = this.store.data.locations.slice();
       // Primero la ubicación activa, para que la interfaz responda antes.
       locs.sort((a, b) => (a.id === this.store.data.activeLocationId ? -1 : b.id === this.store.data.activeLocationId ? 1 : 0));
@@ -144,17 +145,22 @@ class Monitor {
     const next = { ...prev };
     const thresholdDbz = P.LEVELS[loc.alarm.level || 'light'];
 
-    try {
-      if (!this.frames) await this.refreshFrames(false);
-      const res = await this.radar.analyze(loc, { thresholdDbz, alarmRadiusKm: loc.alarm.radiusKm });
-      next.radar = res;
-    } catch (e) {
-      if (e.code !== 'noCoverage') this.log('radar', loc.name, e.message);
-      next.radar = { ok: false, error: e.message, code: e.code || null, checkedAt: Date.now() };
-    }
-
-    const modelKey = `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
-    if (!prev.model || !prev.model.ok || prev.modelKey !== modelKey || Date.now() - prev.model.updatedAt > MODEL_TTL) {
+    // Radar, modelo y rayos a la vez. Los rayos (EUMETSAT) tardan a veces varios
+    // segundos: el resto se enseña antes, con los rayos de la comprobación anterior.
+    const lightning = this.lightning && this.lightning.around(loc.lat, loc.lon, Math.max(60, (loc.alarm.lightningKm || 20) * 2))
+      .catch((e) => { this.log('lightning', loc.name, e.message); return { ok: false, error: e.message }; });
+    const radar = (async () => {
+      try {
+        if (!this.frames) await this.refreshFrames(false);
+        next.radar = await this.radar.analyze(loc, { thresholdDbz, alarmRadiusKm: loc.alarm.radiusKm });
+      } catch (e) {
+        if (e.code !== 'noCoverage' && e.code !== 'radarGap') this.log('radar', loc.name, e.message);
+        next.radar = { ok: false, error: e.message, code: e.code || null, checkedAt: Date.now() };
+      }
+    })();
+    const model = (async () => {
+      const modelKey = `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
+      if (prev.model && prev.model.ok && prev.modelKey === modelKey && Date.now() - prev.model.updatedAt <= MODEL_TTL) return;
       try {
         next.model = await this.weather.forecast(loc.lat, loc.lon);
         next.modelKey = modelKey;
@@ -162,15 +168,8 @@ class Monitor {
         this.log('model', loc.name, e.message);
         if (!prev.model || prev.modelKey !== modelKey) next.model = { ok: false, error: e.message };
       }
-    }
-    if (this.lightning) {
-      try {
-        next.lightning = await this.lightning.around(loc.lat, loc.lon, Math.max(60, (loc.alarm.lightningKm || 20) * 2));
-      } catch (e) {
-        this.log('lightning', loc.name, e.message);
-        next.lightning = { ok: false, error: e.message };
-      }
-    }
+    })();
+    await Promise.all([radar, model]);
 
     // Si la ubicación se movió o borró mientras tanto, el resultado ya no vale.
     if (!stillValid()) return;
@@ -178,6 +177,12 @@ class Monitor {
       // La autoevaluación usa la previsión sin calibrar; la app, la calibrada.
       this.verifier.ingest(id, thresholdDbz, next.radar, next.model);
       next.radar = calibrateRadar(next.radar, this.verifier.calibration());
+    }
+    if (lightning) {
+      this.status.set(id, { ...next });
+      this.emit();
+      next.lightning = await lightning;
+      if (!stillValid()) return;
     }
     this.status.set(id, next);
 
