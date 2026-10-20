@@ -70,6 +70,7 @@
     }
   };
 
+  const RETRY_MS = [3000, 10000, 30000]; // teselas que no llegan
   const OPERA_MIN_DBZ = 7; // por debajo suele ser ruido o aire claro
   const LUT = (() => {
     const rain = new Map();
@@ -109,7 +110,9 @@
           } catch (e) { codes = null; }
           if (tile._raDead) return;
           if (!codes) {
-            if (tries < 1) { setTimeout(() => layer._raQueue(tile, coords, done, tries + 1), 15000); return; }
+            // Reintentos cada vez más espaciados; si ni así, se vuelve a pedir al recuperar la red o la pestaña.
+            if (tries < RETRY_MS.length) { setTimeout(() => layer._raQueue(tile, coords, done, tries + 1), RETRY_MS[tries]); return; }
+            layer._raFailed = true;
             done(new Error('tile'), tile);
             return;
           }
@@ -375,6 +378,14 @@
     function pause() { st.playing = false; dom.timeline.classList.remove('playing'); updatePlayTitle(); clearTimeout(st.timer); }
     function toggle() { if (st.playing) pause(); else play(); }
     function updatePlayTitle() { if (st.t) dom.play.title = st.t(st.playing ? 'ui.pause' : 'ui.play'); }
+
+    // Teselas que fallaron (sin red, pestaña dormida en el móvil…): otra vez al volver.
+    const retryFailed = () => {
+      if (document.hidden) return;
+      for (const e of st.layers) if (e.layer._raFailed) { e.layer._raFailed = false; e.ready = false; e.layer.redraw(); }
+    };
+    window.addEventListener('online', retryFailed);
+    document.addEventListener('visibilitychange', retryFailed);
 
     map.on('zoomstart', () => { for (const e of st.layers) { const c = e.layer.getContainer(); if (c) c.style.transform = ''; } });
     map.on('zoomend moveend', () => { if (st.index > st.layers.length - 1) show(); });

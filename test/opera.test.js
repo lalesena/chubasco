@@ -87,6 +87,7 @@ test('OPERA: análisis de una ubicación y sin cobertura fuera de Europa', async
   assert.ok(Math.abs(near.nearestAny.distanceKm - 18.9) < 1.5, near.nearestAny.distanceKm);
   assert.ok(Math.abs(near.nearestAny.bearingDeg - 33) < 6, near.nearestAny.bearingDeg);
 
+  await op.usual(); // la cobertura habitual se calcula una vez, al principio
   const before = log.length;
   await assert.rejects(op.analyze({ id: 'c', name: 'Nueva York', lat: 40.7, lon: -74 }, opts), (e) => e.code === 'noCoverage');
   assert.equal(log.length, before, 'fuera de la rejilla no se descarga nada');
@@ -111,6 +112,75 @@ test('OPERA: teselas del mapa en su sitio', async () => {
   // Lejos de Europa: todo "sin datos" y sin descargar mosaicos.
   const far = await op.viewTile({ time: 1e9, z: 3, x: 2, y: 3 });
   assert.ok(far.every((v) => v === O.NODATA));
+});
+
+// Un fotograma al que no le llegaron los radares de la zona del chubasco (como pasa a menudo con los de España).
+const MISSING = -9999000;
+const gapFile = operaFile((lat, lon) => (lon > -4.5 && lon < -1.5 && lat > 39.2 && lat < 41.5 ? MISSING : NaN), { lat0: 39, lat1: 42, lon0: -5, lon1: -2 });
+function byTime(pick, log = []) {
+  return async (url, opts) => {
+    log.push(url);
+    const m = /OPERA@(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})@/.exec(url);
+    const f = pick(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000);
+    if (!f) return new Response('', { status: 404 });
+    const r = /bytes=(\d+)-(\d+)/.exec(opts.headers.Range);
+    return new Response(f.read(+r[1], +r[2]), { status: 206 });
+  };
+}
+
+test('OPERA: huecos de radares que no llegaron, tapados con el fotograma anterior', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  const op = new O.OperaSource({ fetch: byTime((t) => (t === newest ? gapFile : file)) });
+  const maps = await op.getMaps();
+  assert.equal(maps.frames[maps.frames.length - 1].time, newest);
+  const opts = { thresholdDbz: 18, alarmRadiusKm: 20 };
+  const r = await op.analyze({ id: 'a', name: 'Dentro', lat: 40.25, lon: -3.7 }, opts);
+  assert.equal(r.frameTime, newest);
+  assert.equal(r.atLocation.dbz, 40, 'el chubasco sigue ahí');
+  assert.ok(r.gap && r.gap.fraction > 0.9 && r.gap.ageMin >= 5 && r.gap.ageMin <= 10, JSON.stringify(r.gap));
+  assert.ok(r.missingFraction < 0.01);
+
+  // En el mapa, igual.
+  const z = 8, x = 125, y = 96;
+  const q = await op.viewTile({ time: newest, z, x, y });
+  const wet = q.filter((v) => v !== O.NODATA && v !== O.NONE && O.dbzOf(v) >= 30).length;
+  const ref = (await op.viewTile({ time: maps.frames[maps.frames.length - 2].time, z, x, y })).filter((v) => v !== O.NODATA && v !== O.NONE && O.dbzOf(v) >= 30).length;
+  assert.ok(wet > 1000 && wet === ref, `${wet} / ${ref}`);
+  // La caché no se toca: la siguiente vez sale igual (la web pasa el resultado sin copiarlo).
+  q.fill(0);
+  assert.equal((await op.viewTile({ time: newest, z, x, y })).filter((v) => v !== O.NODATA && v !== O.NONE && O.dbzOf(v) >= 30).length, wet);
+});
+
+test('OPERA: radares de la zona caídos más de media hora, y sin cobertura de verdad', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  // La última hora y media sin los radares de la zona; antes, normal.
+  const op = new O.OperaSource({ fetch: byTime((t) => (newest - t < 5400 ? gapFile : file)) });
+  await op.getMaps();
+  const opts = { thresholdDbz: 18, alarmRadiusKm: 20 };
+  await assert.rejects(op.analyze({ id: 'a', name: 'Dentro', lat: 40.25, lon: -3.7 }, opts), (e) => e.code === 'radarGap');
+  // Donde nunca hay radar, sin cobertura.
+  await assert.rejects(op.analyze({ id: 'c', name: 'Nueva York', lat: 40.7, lon: -74 }, opts), (e) => e.code === 'noCoverage');
+  assert.equal(await op.usuallyCovered(40.25, -3.7), true);
+  assert.equal(await op.usuallyCovered(40.7, -74), false);
+});
+
+test('OPERA: una tesela con un mosaico que no llega falla (para reintentarla), no sale vacía', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  let broken = true, calls = 0;
+  const base = fakeFetch();
+  const op = new O.OperaSource({
+    fetch: async (url, opts) => {
+      const r = /bytes=(\d+)-/.exec(opts.headers.Range);
+      if (broken && +r[1] >= 16384 && url.includes('T' + new Date(newest * 1000).toISOString().slice(11, 16).replace(':', ''))) { calls++; return new Response('', { status: 502 }); }
+      return base(url, opts);
+    }
+  });
+  await op.getMaps();
+  await assert.rejects(op.viewTile({ time: newest, z: 8, x: 125, y: 96 }));
+  assert.ok(calls >= 2, 'con un reintento');
+  broken = false;
+  const q = await op.viewTile({ time: newest, z: 8, x: 125, y: 96 });
+  assert.ok(q.some((v) => v !== O.NODATA && O.dbzOf(v) >= 30));
 });
 
 test('Intermediario de Cloudflare: solo OPERA, con rango, CORS para la web propia y caché', async () => {

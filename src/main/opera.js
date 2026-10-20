@@ -11,6 +11,12 @@
  *
  * En memoria, un byte por píxel: 0 sin eco, 255 sin datos (fuera de
  * cobertura) y 1–254 = dBZ en pasos de 0,5 (dbz = q / 2 − 32).
+ *
+ * OPERA cierra cada compuesto con los radares que le hayan llegado a tiempo,
+ * y a menudo falta alguno (en España, a veces medio país durante varios
+ * fotogramas seguidos). Esos huecos se tapan con el fotograma anterior más
+ * reciente que tenga datos ahí (hasta FILL_MAX), solo donde suele haber radar
+ * (usual(): la cobertura de varios fotogramas de las últimas 24 h).
  */
 const A = require('./analysis');
 const TIFF = require('./tiff');
@@ -20,6 +26,10 @@ const BASE_URL = 'https://s3.waw3-1.cloudferro.com/openradar-24h';
 const STEP = 300;          // un fotograma cada 5 min
 const DELAY = 240;         // tarda ~4 min en publicarse
 const RETRY_MISSING = 45;  // s antes de volver a buscar un fotograma que aún no estaba
+const FILL_MAX = 1800;     // s: lo más antiguo que puede ser un fotograma para tapar un hueco de otro
+// Horas atrás de los fotogramas con que se calcula la cobertura habitual, y cada cuánto se recalcula.
+const USUAL_HOURS = [1, 4, 8, 12, 16, 20];
+const USUAL_TTL = 6 * 3600 * 1000;
 const HEADER_BYTES = 16384;
 const NONE = 0, NODATA = 255;
 const MIN_DBZ = -10;       // por debajo, ruido de aire claro
@@ -106,22 +116,33 @@ class OperaSource {
     this.tiles = new LRU(160); // ≈256 KB cada uno
     this.grids = new LRU(24);
     this.boxMaps = new LRU(12);
+    this.views = new LRU(64);  // códigos de teselas del mapa, sin rellenar
     this.inflight = new Map();
+    this.usualMask = null;     // promesa de la cobertura habitual
+    this.usualAt = 0;
   }
 
   url(time) { return fileUrl(this.base, time); }
 
-  async range(time, start, end) {
+  async range(time, start, end, retry = true) {
     const headers = { Range: `bytes=${start}-${end}` };
     if (this.userAgent) headers['User-Agent'] = this.userAgent;
-    const res = await this.fetch(this.url(time), { headers });
-    if (res.status === 404 || res.status === 403) {
-      const e = new Error('OPERA: fotograma no disponible');
-      e.missing = true;
-      throw e;
+    let res, buf;
+    try {
+      res = await this.fetch(this.url(time), { headers });
+      if (res.status === 404 || res.status === 403) {
+        const e = new Error('OPERA: fotograma no disponible');
+        e.missing = true;
+        throw e;
+      }
+      if (!res.ok) throw new Error(`OPERA HTTP ${res.status}`);
+      buf = new Uint8Array(await res.arrayBuffer());
+    } catch (e) {
+      // Un corte de red o un fallo pasajero del servidor: una vez más, al poco.
+      if (e.missing || !retry) throw e;
+      await new Promise((r) => setTimeout(r, 1000));
+      return this.range(time, start, end, false);
     }
-    if (!res.ok) throw new Error(`OPERA HTTP ${res.status}`);
-    const buf = new Uint8Array(await res.arrayBuffer());
     // Un servidor que no admite Range devuelve el fichero entero.
     return res.status === 206 ? buf : buf.subarray(start, end + 1);
   }
@@ -206,11 +227,72 @@ class OperaSource {
     if (jobs.length && errors === jobs.length) throw last;
     const { width: W, height: H, tileWidth: tw, tileHeight: th, tilesAcross } = ifd;
     // Código del píxel (c, r) del nivel; NODATA fuera de la imagen o si falló el mosaico.
-    return (c, r) => {
+    const get = (c, r) => {
       if (c < 0 || r < 0 || c >= W || r >= H) return NODATA;
       const t = tiles.get(((r / th) | 0) * tilesAcross + ((c / tw) | 0));
       return t ? t[(r % th) * tw + (c % tw)] : NODATA;
     };
+    get.failed = errors; // mosaicos que no se pudieron descargar
+    return get;
+  }
+
+  // ------------------------------------------------------------------
+  // Cobertura habitual
+
+  /**
+   * Píxeles del nivel más grueso (unos 16 km) que tuvieron datos en alguno de
+   * los fotogramas de USUAL_HOURS: dónde suele haber radar. Distingue «aquí no
+   * llega el radar» de «a este fotograma le falta algún radar». Se recalcula
+   * cada USUAL_TTL; si no se consigue, la promesa falla (y se reintenta).
+   */
+  usual() {
+    if (this.usualMask && Date.now() - this.usualAt < USUAL_TTL) return this.usualMask;
+    const ref = this.latest || Math.floor((Date.now() / 1000 - DELAY) / STEP) * STEP;
+    const p = (async () => {
+      const got = await Promise.allSettled(USUAL_HOURS.map(async (hours) => {
+        const time = ref - hours * 3600;
+        const h = await this.header(time);
+        const level = h.levels.length - 1;
+        const ifd = h.levels[level];
+        const get = await this.tilesFor(time, h, level, 0, 0, ifd.width - 1, ifd.height - 1);
+        if (get.failed) throw new Error('OPERA: faltan mosaicos');
+        return { h, ifd, get };
+      }));
+      let out = null;
+      for (const r of got) {
+        if (r.status !== 'fulfilled') continue;
+        const { h, ifd, get } = r.value;
+        if (!out) out = { geomKey: h.geomKey, w: ifd.width, h: ifd.height, fx: ifd.fx, fy: ifd.fy, mask: new Uint8Array(ifd.width * ifd.height) };
+        if (h.geomKey !== out.geomKey || ifd.width !== out.w || ifd.height !== out.h) continue;
+        for (let r0 = 0; r0 < out.h; r0++) for (let c = 0; c < out.w; c++) if (get(c, r0) !== NODATA) out.mask[r0 * out.w + c] = 1;
+      }
+      if (!out) throw new Error('OPERA: no se pudo calcular la cobertura habitual');
+      return out;
+    })();
+    this.usualMask = p;
+    this.usualAt = Date.now();
+    p.catch(() => { if (this.usualMask === p) this.usualMask = null; });
+    return p;
+  }
+
+  /** ¿Suele haber radar en (u, v), posición continua en el nivel 0? */
+  static isUsual(cov, u, v) {
+    const c = Math.floor(u * cov.fx), r = Math.floor(v * cov.fy);
+    return c >= 0 && r >= 0 && c < cov.w && r < cov.h && cov.mask[r * cov.w + c] === 1;
+  }
+
+  /** ¿Suele haber radar en este punto? true/false, o null si no se sabe. */
+  async usuallyCovered(lat, lon) {
+    if (!this.latest) return null;
+    try {
+      const cov = await this.usual();
+      const h = await this.header(this.latest);
+      if (h.geomKey !== cov.geomKey) return null;
+      const p = this.toPixel(h, lat, lon);
+      return !!p && OperaSource.isUsual(cov, p.u, p.v);
+    } catch (e) {
+      return null;
+    }
   }
 
   // ------------------------------------------------------------------
@@ -239,6 +321,7 @@ class OperaSource {
       }
       for (const t of this.missing.keys()) if (t < now - 3600) this.missing.delete(t);
       if (!this.latest) throw lastError || new Error('OPERA: no hay fotogramas recientes');
+      this.usual().catch(() => {}); // para cuando haga falta (mapa y análisis)
     }
     if (!this.maps || this.maps.generated !== this.latest) {
       this.maps = {
@@ -292,6 +375,8 @@ class OperaSource {
     let missing = n;
     if (m.bounds) {
       const get = await this.tilesFor(frame.time, h, 0, ...m.bounds);
+      // Con un mosaico de menos, media zona saldría «sin datos»: mejor otro fotograma.
+      if (get.failed) throw new Error('OPERA: faltan mosaicos');
       for (let i = 0; i < n; i++) {
         if (m.col[i] < 0) continue;
         const q = get(m.col[i], m.row[i]);
@@ -310,7 +395,7 @@ class OperaSource {
 
   clutterBox(box) { return { ...box, key: `opera-${box.key}` }; }
 
-  analyze(loc, opts) { return analyzeWith(this, loc, { ...opts, requireCoverage: true }); }
+  analyze(loc, opts) { return analyzeWith(this, loc, { ...opts, requireCoverage: true, fillMaxS: FILL_MAX }); }
 
   // ------------------------------------------------------------------
   // Mapa: un tesela de Web Mercator (z/x/y) con un byte por píxel
@@ -318,10 +403,70 @@ class OperaSource {
   async viewTile({ time, z, x, y, size = 256, smooth = false } = {}) {
     time = Number(time); z = Math.round(Number(z)); x = Math.round(Number(x)); y = Math.round(Number(y));
     size = size === 512 ? 512 : 256;
+    smooth = !!smooth;
     if (!Number.isFinite(time) || !(z >= 0 && z <= 14) || !Number.isFinite(x) || !(y >= 0 && y < 2 ** z)) throw new Error('Tesela no válida');
     const n = 2 ** z;
     x = ((x % n) + n) % n;
-    const out = new Uint8Array(size * size).fill(NODATA);
+    // La cobertura habitual suele estar ya (se pide con los fotogramas); si tarda, la tesela no la espera.
+    let timer;
+    const cov = await Promise.race([this.usual().catch(() => null), new Promise((r) => { timer = setTimeout(r, 2000, null); })]);
+    clearTimeout(timer);
+    const own = await this.viewCodes(time, z, x, y, size, smooth);
+    // Copia: la de la caché no se toca (la web la pasa a la página sin copiarla).
+    const out = own.codes.slice();
+    if (!cov || own.geomKey !== cov.geomKey) return out;
+
+    // Huecos: sin datos donde suele haber radar. Se tapan con los fotogramas
+    // anteriores de la animación (los mismos mosaicos, casi siempre ya en la caché).
+    if (!own.pos) return out;
+    const { U, V, cells, G, fx: lx, fy: ly } = own.pos;
+    let gaps = [];
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] !== NODATA) continue;
+      const px = i % size, py = (i - px) / size;
+      const gj = (py + 0.5) / G, j0 = Math.min(cells - 2, Math.floor(gj)), fy = gj - j0;
+      const gi = (px + 0.5) / G, i0 = Math.min(cells - 2, Math.floor(gi)), fx = gi - i0;
+      const k = j0 * cells + i0;
+      const u = (U[k] * (1 - fx) + U[k + 1] * fx) * (1 - fy) + (U[k + cells] * (1 - fx) + U[k + cells + 1] * fx) * fy;
+      const v = (V[k] * (1 - fx) + V[k + 1] * fx) * (1 - fy) + (V[k + cells] * (1 - fx) + V[k + cells + 1] * fx) * fy;
+      if (Number.isFinite(u) && Number.isFinite(v) && OperaSource.isUsual(cov, u / lx, v / ly)) gaps.push(i);
+    }
+    if (!gaps.length) return out;
+    const listed = this.maps ? this.maps.frames.map((f) => f.time) : [time - 600, time - 1200, time - 1800];
+    const before = listed.filter((t) => t < time && time - t <= FILL_MAX).sort((a, b) => b - a);
+    for (const t of before) {
+      let prev;
+      try { prev = await this.viewCodes(t, z, x, y, size, smooth); } catch (e) { continue; }
+      gaps = gaps.filter((i) => {
+        const q = prev.codes[i];
+        if (q === NODATA) return true;
+        out[i] = q;
+        return false;
+      });
+      if (!gaps.length) break;
+    }
+    return out;
+  }
+
+  /**
+   * Códigos de una tesela de un fotograma, sin rellenar, y la posición en el
+   * nivel usado cada G píxeles (pos; null si la tesela cae fuera). Se guardan
+   * en una caché (son también los de la animación). Falla si falta algún mosaico.
+   */
+  viewCodes(time, z, x, y, size, smooth) {
+    const key = `${time}/${z}/${x}/${y}/${size}/${smooth ? 1 : 0}`;
+    let p = this.views.get(key);
+    if (!p) {
+      p = this.computeView(time, z, x, y, size, smooth);
+      p.catch(() => this.views.delete(key));
+      this.views.set(key, p);
+    }
+    return p;
+  }
+
+  async computeView(time, z, x, y, size, smooth) {
+    const n = 2 ** z;
+    const codes = new Uint8Array(size * size).fill(NODATA);
     const h = await this.header(time);
 
     // Nivel de detalle: el más grueso que no se vea borroso a este zoom.
@@ -347,8 +492,10 @@ class OperaSource {
         if (V[k] < r0) r0 = V[k]; if (V[k] > r1) r1 = V[k];
       }
     }
-    if (!(c1 >= -1 && r1 >= -1 && c0 <= ifd.width && r0 <= ifd.height)) return out;
+    if (!(c1 >= -1 && r1 >= -1 && c0 <= ifd.width && r0 <= ifd.height)) return { codes, pos: null, geomKey: h.geomKey };
     const get = await this.tilesFor(time, h, level, Math.floor(c0) - 1, Math.floor(r0) - 1, Math.ceil(c1) + 1, Math.ceil(r1) + 1);
+    // Un mosaico de menos dejaría un trozo vacío que nadie volvería a pedir: mejor fallar y que se reintente.
+    if (get.failed) throw new Error('OPERA: faltan mosaicos');
 
     for (let py = 0; py < size; py++) {
       const gj = (py + 0.5) / G, j0 = Math.min(cells - 2, Math.floor(gj)), fy = gj - j0;
@@ -367,11 +514,11 @@ class OperaSource {
             q = Math.round((q00 * (1 - au) + q10 * au) * (1 - av) + (q01 * (1 - au) + q11 * au) * av);
           }
         }
-        out[py * size + px] = q;
+        codes[py * size + px] = q;
       }
     }
-    return out;
+    return { codes, pos: { U, V, cells, G, fx: ifd.fx, fy: ifd.fy }, geomKey: h.geomKey };
   }
 }
 
-module.exports = { OperaSource, laea, fileUrl, frameTimes, encode, dbzOf, BASE_URL, NONE, NODATA, STEP, DELAY };
+module.exports = { OperaSource, laea, fileUrl, frameTimes, encode, dbzOf, BASE_URL, NONE, NODATA, STEP, DELAY, FILL_MAX };

@@ -243,6 +243,9 @@
     if (r && !r.ok && r.code === 'noCoverage') {
       return out({ level: 'unknown', headline: t('status.noCoverage'), detail: [t('detail.noCoverage'), modelLine()].filter(Boolean).join(' '), short: '' });
     }
+    if (r && !r.ok && r.code === 'radarGap') {
+      return out({ level: 'unknown', headline: t('status.radarGap'), detail: [t('detail.radarGap'), modelLine()].filter(Boolean).join(' '), short: '' });
+    }
 
     if (!r || !r.ok) {
       const err = r && r.error ? t('detail.radarError', { err: r.error }) : '';
@@ -259,7 +262,8 @@
 
     const mo = r.motion;
     const at = r.atLocation || {};
-    const partial = r.missingFraction > 0.3 ? ' ' + t('detail.partialCoverage') : '';
+    const partial = r.missingFraction > 0.3 ? ' ' + t('detail.partialCoverage')
+      : r.gap ? ' ' + t('detail.gapFilled', { min: Math.max(5, r.gap.ageMin) }) : '';
 
     // 1. Lloviendo en la ubicación.
     if (at.dbz !== null && at.dbz !== undefined && at.dbz >= thr) {

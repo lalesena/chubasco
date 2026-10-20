@@ -157,6 +157,66 @@ function staticEchoes(grids, box, { maxAreaKm2 = 60, maxDeltaDbz = 3 } = {}) {
   return count ? out : null;
 }
 
+/**
+ * Copias de dos fotogramas sin lo que solo tiene uno de ellos (donde al otro le
+ * faltaba algún radar): así el movimiento no confunde «este radar no llegó»
+ * con «la lluvia se ha ido». Si cubren lo mismo, los mismos objetos.
+ */
+function commonCoverage(a, b) {
+  const n = a.w * a.h;
+  let differ = false;
+  for (let i = 0; i < n && !differ; i++) differ = (a.kind[i] === 255) !== (b.kind[i] === 255);
+  if (!differ) return [a, b];
+  const cut = (g, other) => {
+    const dbz = new Float32Array(g.dbz), kind = new Uint8Array(g.kind);
+    for (let i = 0; i < n; i++) if (other.kind[i] === 255) { dbz[i] = NaN; kind[i] = 255; }
+    return { ...g, dbz, kind };
+  };
+  return [cut(a, b), cut(b, a)];
+}
+
+/**
+ * Tapa los huecos de un fotograma (píxeles sin datos porque algún radar no
+ * llegó a tiempo) con los fotogramas anteriores `older`, del más reciente al
+ * más antiguo y como mucho de `maxAgeS` antes, desplazados con el movimiento
+ * (px/min) si lo hay. Devuelve una copia con `filled` (máscara de los píxeles
+ * tapados) y `filledAgeS` (edad del dato más viejo usado), o la misma rejilla
+ * si no había nada que tapar.
+ */
+function fillGaps(grid, older, { motion = null, maxAgeS = 1800 } = {}) {
+  const n = grid.w * grid.h;
+  let todo = 0;
+  for (let i = 0; i < n; i++) if (grid.kind[i] === 255) todo++;
+  if (!todo) return grid;
+  const dbz = new Float32Array(grid.dbz), kind = new Uint8Array(grid.kind);
+  const filled = new Uint8Array(n);
+  let count = 0, ageS = 0;
+  const sorted = older.filter((o) => o && o.time < grid.time && grid.time - o.time <= maxAgeS && o.w === grid.w && o.h === grid.h)
+    .sort((a, b) => b.time - a.time);
+  for (const o of sorted) {
+    const dtMin = (grid.time - o.time) / 60;
+    const sx = motion ? Math.round(motion.vx * dtMin) : 0, sy = motion ? Math.round(motion.vy * dtMin) : 0;
+    let used = 0;
+    for (let y = 0; y < grid.h; y++) {
+      const yy = y - sy;
+      if (yy < 0 || yy >= o.h) continue;
+      for (let x = 0; x < grid.w; x++) {
+        const i = y * grid.w + x;
+        if (kind[i] !== 255) continue;
+        const xx = x - sx;
+        if (xx < 0 || xx >= o.w) continue;
+        const j = yy * o.w + xx;
+        if (o.kind[j] === 255) continue;
+        dbz[i] = o.dbz[j]; kind[i] = o.kind[j]; filled[i] = 1; used++;
+      }
+    }
+    if (used) { count += used; ageS = grid.time - o.time; }
+    if (count >= todo) break;
+  }
+  if (!count) return grid;
+  return { ...grid, dbz, kind, missingFraction: (todo - count) / n, filled, filledAgeS: ageS };
+}
+
 /** Máximo dBZ dentro de un radio (en píxeles) alrededor de (px, py). */
 function probe(grid, px, py, rPx) {
   let best = NaN;
@@ -610,7 +670,7 @@ function nowcast(grid, box, motion, { thresholdDbz, horizonMin = 120, stepMin = 
 module.exports = {
   TILE_SIZE, ZOOM, WORLD, MIN_ECHO_KM2,
   project, unproject, metersPerPixel, boxFor,
-  minPixelsFor, components, cleanGrid, staticEchoes,
+  minPixelsFor, components, cleanGrid, staticEchoes, commonCoverage, fillGaps,
   locationStats, estimateMotion, combineMotion, estimateMotionField, combineFields, velocityAt,
   intensityTrend, trendDelta, ensembleMembers, nowcast, bearingDeg, probe
 };

@@ -30,7 +30,7 @@ class LRU {
  * Analiza una ubicación con una fuente de radar (getMaps + gridFor): estado
  * actual, tendencia, movimiento y nowcast.
  */
-async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = null, requireCoverage = false }) {
+async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = null, requireCoverage = false, fillMaxS = 0 }) {
   const maps = await src.getMaps();
   const frames = maps.frames;
   // Radio de análisis: algo mayor que el de alarma para ver lo que viene.
@@ -65,7 +65,8 @@ async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = nul
     for (let i = 1; i < gs.length; i++) {
       if (!gs[i - 1] || !gs[i]) continue;
       const dt = (gs[i].time - gs[i - 1].time) / 60;
-      pairs.push({ a: gs[i - 1], b: gs[i], dt, m: A.estimateMotion(gs[i - 1], gs[i], box, dt) });
+      const [a, b] = A.commonCoverage(gs[i - 1], gs[i]);
+      pairs.push({ a, b, dt, m: A.estimateMotion(a, b, box, dt) });
     }
     return { pairs, motion: A.combineMotion(pairs.map((p) => p.m), box) };
   };
@@ -89,15 +90,33 @@ async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = nul
     ? A.intensityTrend(olderBase, latestBase, box, (latestBase.time - olderBase.time) / 60, motion, field)
     : null;
 
-  // 4. Estado y previsión con el umbral de esta alarma.
+  // 4. Estado y previsión con el umbral de esta alarma. Si al último fotograma
+  // le falta algún radar, esa zona sale de los anteriores (ver fillGaps).
   const clean = (g) => g && A.cleanGrid(g, { thresholdDbz, minPx });
-  const latest = clean(latestBase);
+  const current = fillMaxS ? A.fillGaps(latestBase, usable.slice(0, -1), { motion, maxAgeS: fillMaxS }) : latestBase;
+  const latest = clean(current);
   const stats = A.locationStats(latest, box, { alarmRadiusKm, thresholdDbz, searchRadiusKm: analysisKm });
-  // Fuera de la cobertura del radar (OPERA solo cubre Europa).
   if (requireCoverage && !stats.atLocation.hasData && stats.missingFraction > 0.5) {
-    const e = new Error('Sin cobertura de radar');
-    e.code = 'noCoverage';
+    // Fuera de la cobertura del radar (OPERA solo cubre Europa), o radares que
+    // aquí suelen estar y llevan un rato sin llegar.
+    const usual = src.usuallyCovered ? await src.usuallyCovered(loc.lat, loc.lon) : null;
+    const e = new Error(usual ? 'El radar de la zona no ha llegado' : 'Sin cobertura de radar');
+    e.code = usual ? 'radarGap' : 'noCoverage';
     throw e;
+  }
+  // Parte del radar de alrededor sacada de fotogramas anteriores: cuánto y de hace cuánto.
+  let gap = null;
+  if (current.filled) {
+    const r = (alarmRadiusKm * 1000) / box.mpp, r2 = r * r;
+    let inside = 0, total = 0;
+    for (let y = Math.max(0, Math.floor(box.cy - r)); y <= Math.min(box.h - 1, Math.ceil(box.cy + r)); y++) {
+      for (let x = Math.max(0, Math.floor(box.cx - r)); x <= Math.min(box.w - 1, Math.ceil(box.cx + r)); x++) {
+        if ((x - box.cx) ** 2 + (y - box.cy) ** 2 > r2) continue;
+        total++;
+        if (current.filled[y * box.w + x]) inside++;
+      }
+    }
+    if (total && inside / total > 0.2) gap = { fraction: inside / total, ageMin: Math.round(current.filledAgeS / 60) };
   }
   const nc = A.nowcast(latest, box, motion, { thresholdDbz, horizonMin: 120, stepMin: 5, field, trend });
   // Previsión en otros puntos de la misma caja (p. ej. a lo largo de un trayecto).
@@ -158,6 +177,7 @@ async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = nul
     filtered: { clutterPx: clutterMask ? clutterMask.reduce((s, v) => s + v, 0) : 0, staticPx, speckles: latest.removed },
     trendKmPer10,
     approaching,
+    gap,
     points: extra
   };
 }

@@ -128,3 +128,47 @@ test('sin datos alrededor: la ubicación no tiene cobertura', () => {
   assert.strictEqual(s.atLocation.hasData, false);
   assert.strictEqual(s.missingFraction, 1);
 });
+
+test('huecos de un fotograma: se tapan con el anterior, desplazado con el movimiento', () => {
+  const box = { w: 40, h: 20, x0: 0, y0: 0 };
+  const grid = (time, fill, gapFrom = 99) => {
+    const n = box.w * box.h;
+    const dbz = new Float32Array(n).fill(NaN), kind = new Uint8Array(n);
+    for (let y = 0; y < box.h; y++) for (let x = 0; x < box.w; x++) {
+      const i = y * box.w + x;
+      if (x >= gapFrom) { kind[i] = 255; continue; }
+      const v = fill(x, y);
+      if (v) { dbz[i] = v; kind[i] = P.KIND_RAIN; }
+    }
+    return { w: box.w, h: box.h, dbz, kind, missingFraction: 0, time };
+  };
+  // Una franja de lluvia en x = 10–13 que se mueve 1 px/min hacia el este; al último le falta x ≥ 20.
+  const older = grid(1000, (x) => (x >= 10 && x <= 13 ? 35 : 0));
+  const last = grid(1600, (x) => (x >= 20 && x <= 23 ? 35 : 0), 20);
+  const motion = { vx: 1, vy: 0 };
+  const f = A.fillGaps(last, [older], { motion, maxAgeS: 1800 });
+  assert.notStrictEqual(f, last);
+  assert.strictEqual(f.dbz[5 * box.w + 21], 35, 'la franja, 10 px más allá');
+  assert.ok(!(f.dbz[5 * box.w + 12] >= 10), 'no donde estaba');
+  assert.strictEqual(f.filled[5 * box.w + 21], 1);
+  assert.strictEqual(f.filled[5 * box.w + 5], 0);
+  assert.strictEqual(f.filledAgeS, 600);
+  assert.strictEqual(f.missingFraction, 0);
+  // Más deprisa: los 10 px primeros del hueco vendrían de fuera de la caja y se quedan sin datos.
+  const fast = A.fillGaps(last, [older], { motion: { vx: 3, vy: 0 }, maxAgeS: 1800 });
+  assert.ok(Math.abs(fast.missingFraction - (10 * box.h) / (box.w * box.h)) < 1e-9);
+  assert.strictEqual(fast.kind[5 * box.w + 25], 255);
+  // Demasiado antiguo, o nada que tapar: la misma rejilla.
+  assert.strictEqual(A.fillGaps(last, [older], { motion, maxAgeS: 300 }), last);
+  assert.strictEqual(A.fillGaps(older, [last], { motion }), older);
+
+  // Movimiento: solo lo que cubren los dos.
+  const [a, b] = A.commonCoverage(older, last);
+  assert.strictEqual(a.kind[5 * box.w + 12], P.KIND_RAIN);
+  assert.strictEqual(a.kind[5 * box.w + 25], 255);
+  assert.ok(Number.isNaN(a.dbz[5 * box.w + 25]));
+  assert.strictEqual(b.kind[5 * box.w + 25], 255);
+  assert.notStrictEqual(b, last);
+  const same = A.commonCoverage(older, older);
+  assert.strictEqual(same[0], older);
+});
