@@ -179,32 +179,27 @@
   // del frío a un neutro cálido hacia los 15 °C y de ahí al amarillo, el naranja
   // y el rojo oscuro del calor.
 
-  // Bajo cero, lilas, más intensos cuanto más frío; de cero para arriba, del azul
-  // (el más fuerte, justo en 0 °C) al neutro de 15 °C y de ahí al rojo. El salto
-  // en 0 °C (los dos puntos con 0) separa a simple vista lo que hiela de lo que no.
+  // Bajo cero, lilas (más intensos cuanto más frío); en 0 °C, blanco; por encima,
+  // azul, que se aclara hasta el neutro de 15 °C, y de ahí al rojo. Un degradado
+  // azul-blanco-lila: el signo se ve sin un corte brusco en el mapa.
   const TEMP_ANCHORS = [
-    [-30, [58, 22, 96]], [-20, [92, 40, 140]], [-12, [128, 70, 182]], [-5, [170, 120, 214]], [0, [214, 182, 238]],
-    [0, [36, 100, 186]], [4, [84, 156, 212]], [9, [150, 208, 222]], [15, [234, 232, 206]], [20, [250, 216, 110]],
+    [-30, [58, 22, 96]], [-20, [92, 40, 140]], [-12, [128, 70, 182]], [-5, [176, 128, 218]], [0, [244, 242, 250]],
+    [5, [96, 150, 214]], [10, [150, 206, 224]], [15, [232, 232, 200]], [20, [250, 216, 110]],
     [25, [246, 176, 60]], [30, [232, 122, 44]], [35, [206, 66, 42]], [40, [158, 34, 52]], [46, [96, 22, 58]]
   ];
-  const FREEZE = TEMP_ANCHORS.findIndex(([c], k) => k > 0 && c === TEMP_ANCHORS[k - 1][0]); // el primero de cero para arriba
   function tempColor(c) {
-    const list = c < 0 ? TEMP_ANCHORS.slice(0, FREEZE) : TEMP_ANCHORS.slice(FREEZE);
-    if (!(c > list[0][0])) return list[0][1];
-    for (let k = 1; k < list.length; k++) {
-      const [v1, c1] = list[k];
+    if (!(c > TEMP_ANCHORS[0][0])) return TEMP_ANCHORS[0][1];
+    for (let k = 1; k < TEMP_ANCHORS.length; k++) {
+      const [v1, c1] = TEMP_ANCHORS[k];
       if (c <= v1) {
-        const [v0, c0] = list[k - 1];
+        const [v0, c0] = TEMP_ANCHORS[k - 1];
         const f = (c - v0) / (v1 - v0);
         return [0, 1, 2].map((j) => Math.round(c0[j] + (c1[j] - c0[j]) * f));
       }
     }
-    return list[list.length - 1][1];
+    return TEMP_ANCHORS[TEMP_ANCHORS.length - 1][1];
   }
-  /**
-   * Paradas de un degradado de lo a hi (°C) con los colores de la escala: [[0..1, css]],
-   * con el salto de 0 °C (dos paradas en el mismo sitio) si cae dentro.
-   */
+  /** Paradas de un degradado de lo a hi (°C) con los colores de la escala: [[0..1, css]]. */
   function tempStops(lo, hi) {
     const span = hi - lo || 1;
     const out = [[0, tempCss(lo)]];

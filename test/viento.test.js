@@ -637,7 +637,7 @@ test('lluvia: los colores de la lluvia son los del radar y la temperatura tiene 
   assert.equal(M.rainIndex(1e6), 255);
   assert.ok(Math.abs(P.rateToDbz(M.RAIN_MIN, P.KIND_RAIN) - 7) < 0.05, '0,1 mm/h son los 7 dBZ que el radar no pinta por debajo');
   assert.equal(M.rainCss(5), P.cssFor(P.rateToDbz(5, P.KIND_RAIN), P.KIND_RAIN));
-  // Temperatura: lilas bajo cero, del azul al rojo oscuro de cero para arriba, con un neutro entre medias.
+  // Temperatura: lilas bajo cero, blanco en 0 °C, del azul al rojo oscuro por encima, con un neutro entre medias.
   const t = M.tempColorTable();
   assert.equal(t.length, M.TEMP_Q_MAX + 1);
   assert.deepEqual(M.tempColor(-60), M.TEMP_ANCHORS[0][1]);
@@ -651,20 +651,19 @@ test('lluvia: los colores de la lluvia son los del radar y la temperatura tiene 
   assert.equal(M.tempIndex(0.2), 120);
   assert.equal(M.tempIndex(100), M.TEMP_Q_MAX);
   assert.ok(wg !== undefined && cg !== undefined);
-  // Bajo cero, lila (rojo y azul por encima del verde); en cuanto no hiela, azul: se distinguen a simple vista.
-  const [nr, ng, nb] = M.tempColor(-0.5), [pr, pg, pb] = M.tempColor(0.5);
-  assert.ok(nr > ng + 30 && nb > ng + 30, `lila a −0,5 °C: ${M.tempColor(-0.5)}`);
-  assert.ok(pb > pr + 100, `azul a +0,5 °C: ${M.tempColor(0.5)}`);
-  assert.ok(Math.abs(nr - pr) + Math.abs(ng - pg) + Math.abs(nb - pb) > 200, 'el salto en 0 °C se ve');
-  assert.deepEqual(M.tempColor(0), M.tempColor(0.001), 'el cero va con lo de arriba');
+  // Azul-blanco-lila: blanco en 0 °C, lila bajo cero y azul por encima, sin saltos.
+  const [zr, zg, zb] = M.tempColor(0);
+  assert.ok(Math.min(zr, zg, zb) > 235, `blanco a 0 °C: ${M.tempColor(0)}`);
+  const [nr, ng, nb] = M.tempColor(-2), [pr, pg, pb] = M.tempColor(2);
+  assert.ok(nr > ng + 15 && nb > ng + 30, `lila a −2 °C: ${M.tempColor(-2)}`);
+  assert.ok(pb > pr + 40, `azul a +2 °C: ${M.tempColor(2)}`);
+  const [ar, ag, ab] = M.tempColor(-0.2), [br, bg, bb] = M.tempColor(0.2);
+  assert.ok(Math.abs(ar - br) + Math.abs(ag - bg) + Math.abs(ab - bb) < 30, 'sin corte en 0 °C');
   const [dr, , db] = M.tempColor(-20);
   assert.ok(dr < nr && db < nb, 'más frío, lila más oscuro');
-  // El degradado de la leyenda lleva el salto: dos paradas en el mismo sitio.
+  // El degradado de la leyenda pasa por el blanco del cero.
   const stops = M.tempStops(-10, 10);
-  const at0 = stops.filter(([pos]) => pos === 0.5);
-  assert.equal(at0.length, 2);
-  assert.notEqual(at0[0][1], at0[1][1]);
-  assert.equal(M.tempStops(5, 20).filter(([pos]) => pos === 0).length, 1, 'sin cero dentro, sin salto');
+  assert.ok(stops.some(([pos, css]) => pos === 0.5 && css === 'rgb(244,242,250)'));
 });
 
 // ---------------------------------------------------------------------------
