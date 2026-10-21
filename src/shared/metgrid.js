@@ -179,22 +179,38 @@
   // del frío a un neutro cálido hacia los 15 °C y de ahí al amarillo, el naranja
   // y el rojo oscuro del calor.
 
+  // Bajo cero, lilas, más intensos cuanto más frío; de cero para arriba, del azul
+  // (el más fuerte, justo en 0 °C) al neutro de 15 °C y de ahí al rojo. El salto
+  // en 0 °C (los dos puntos con 0) separa a simple vista lo que hiela de lo que no.
   const TEMP_ANCHORS = [
-    [-25, [98, 56, 152]], [-15, [62, 84, 178]], [-5, [52, 130, 204]], [3, [92, 174, 218]],
-    [9, [150, 208, 222]], [15, [234, 232, 206]], [20, [250, 216, 110]], [25, [246, 176, 60]],
-    [30, [232, 122, 44]], [35, [206, 66, 42]], [40, [158, 34, 52]], [46, [96, 22, 58]]
+    [-30, [58, 22, 96]], [-20, [92, 40, 140]], [-12, [128, 70, 182]], [-5, [170, 120, 214]], [0, [214, 182, 238]],
+    [0, [36, 100, 186]], [4, [84, 156, 212]], [9, [150, 208, 222]], [15, [234, 232, 206]], [20, [250, 216, 110]],
+    [25, [246, 176, 60]], [30, [232, 122, 44]], [35, [206, 66, 42]], [40, [158, 34, 52]], [46, [96, 22, 58]]
   ];
+  const FREEZE = TEMP_ANCHORS.findIndex(([c], k) => k > 0 && c === TEMP_ANCHORS[k - 1][0]); // el primero de cero para arriba
   function tempColor(c) {
-    if (!(c > TEMP_ANCHORS[0][0])) return TEMP_ANCHORS[0][1];
-    for (let k = 1; k < TEMP_ANCHORS.length; k++) {
-      const [v1, c1] = TEMP_ANCHORS[k];
+    const list = c < 0 ? TEMP_ANCHORS.slice(0, FREEZE) : TEMP_ANCHORS.slice(FREEZE);
+    if (!(c > list[0][0])) return list[0][1];
+    for (let k = 1; k < list.length; k++) {
+      const [v1, c1] = list[k];
       if (c <= v1) {
-        const [v0, c0] = TEMP_ANCHORS[k - 1];
+        const [v0, c0] = list[k - 1];
         const f = (c - v0) / (v1 - v0);
         return [0, 1, 2].map((j) => Math.round(c0[j] + (c1[j] - c0[j]) * f));
       }
     }
-    return TEMP_ANCHORS[TEMP_ANCHORS.length - 1][1];
+    return list[list.length - 1][1];
+  }
+  /**
+   * Paradas de un degradado de lo a hi (°C) con los colores de la escala: [[0..1, css]],
+   * con el salto de 0 °C (dos paradas en el mismo sitio) si cae dentro.
+   */
+  function tempStops(lo, hi) {
+    const span = hi - lo || 1;
+    const out = [[0, tempCss(lo)]];
+    for (const [c, rgb] of TEMP_ANCHORS) if (c > lo && c < hi) out.push([(c - lo) / span, `rgb(${rgb.join(',')})`]);
+    out.push([1, tempCss(hi)]);
+    return out;
   }
   /** Tabla de colores RGBA empaquetados por escalón q de la temperatura (°C = tempMin + q · tempStep). */
   function tempColorTable(meta = META, alpha = 255) {
@@ -208,5 +224,5 @@
   const tempIndex = (c, meta = META) => Math.max(0, Math.min(TEMP_Q_MAX, Math.round((c - meta.tempMin) / meta.tempStep)));
   const tempCss = (c) => `rgb(${tempColor(c).join(',')})`;
 
-  return { META, RAIN_MIN, TEMP_Q_MAX, OROG, encode, decode, encodeOrog, decodeOrog, sample, rainColorTable, rainIndex, rainCss, rainRgbaCss, TEMP_ANCHORS, tempColor, tempColorTable, tempIndex, tempCss };
+  return { META, RAIN_MIN, TEMP_Q_MAX, OROG, encode, decode, encodeOrog, decodeOrog, sample, rainColorTable, rainIndex, rainCss, rainRgbaCss, TEMP_ANCHORS, tempColor, tempColorTable, tempIndex, tempCss, tempStops };
 });

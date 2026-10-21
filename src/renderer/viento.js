@@ -529,7 +529,7 @@
         html = legendHtml(`${t('viento.legend.rain')} · ${rainUnit()}`, stops, marks);
       } else if (st.tab === 'temp') {
         const [lo, hi] = LEG_TEMP;
-        const stops = [[0, MG.tempCss(lo)], ...MG.TEMP_ANCHORS.filter(([c]) => c > lo && c < hi).map(([c]) => [(c - lo) / (hi - lo), MG.tempCss(c)]), [1, MG.tempCss(hi)]];
+        const stops = MG.tempStops(lo, hi);
         const marks = (mph() ? [0, 20, 40, 60, 80, 100] : [-20, -10, 0, 10, 20, 30, 40]).map((v) => [((mph() ? ((v - 32) * 5) / 9 : v) - lo) / (hi - lo), String(v)]);
         html = legendHtml(`${t('viento.legend.temp')} · ${tunit()}`, stops, marks);
       } else {
@@ -673,8 +673,7 @@
         : D.cap(new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric' }).format(new Date(d.t0))));
       const rows = days.map((d) => {
         // La barra va del mínimo al máximo del día, con los colores del mapa.
-        const stops = [[0, d.min], ...MG.TEMP_ANCHORS.filter(([c]) => c > d.min && c < d.max).map(([c]) => [(c - d.min) / (d.max - d.min), c]), [1, d.max]]
-          .map(([pos, c]) => `${MG.tempCss(c)} ${(pos * 100).toFixed(1)}%`).join(', ');
+        const stops = MG.tempStops(d.min, d.max).map(([pos, css]) => `${css} ${(pos * 100).toFixed(1)}%`).join(', ');
         const left = ((d.min - lo) / full) * 100, width = Math.max(2, ((d.max - d.min) / full) * 100);
         return `<li><span class="vt-day">${esc(label(d))}</span><span class="vt-tmin">${Math.round(tval(d.min))}°</span>` +
           `<span class="vt-trange"><i style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%;background:linear-gradient(to right, ${stops})"></i></span>` +

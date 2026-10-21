@@ -47,8 +47,10 @@
 
   function fmtTemp(t, c, units) {
     if (c === null || c === undefined) return '–';
-    if (units && units.distance === 'mi') return `${num(t, c * 9 / 5 + 32, 0)} °F`;
-    return `${num(t, c, 0)} °C`;
+    // Redondeado antes de formatear (+ 0 quita el «−0» de, p. ej., −0,3 °C).
+    const whole = (x) => Math.round(x) + 0;
+    if (units && units.distance === 'mi') return `${num(t, whole(c * 9 / 5 + 32), 0)} °F`;
+    return `${num(t, whole(c), 0)} °C`;
   }
 
   function fmtClock(t, ts) {
