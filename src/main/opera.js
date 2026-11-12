@@ -17,12 +17,24 @@
  * fotogramas seguidos). Esos huecos se tapan con el fotograma anterior más
  * reciente que tenga datos ahí (hasta FILL_MAX), solo donde suele haber radar
  * (usual(): la cobertura de varios fotogramas de las últimas 24 h).
+ *
+ * EUMETNET publica el mismo compuesto en dos almacenes: el principal
+ * (CloudFerro) y un respaldo en ECMWF. A veces uno de los dos deja de
+ * recibir fotogramas durante horas (el principal, desde el 11-11-2026 a las
+ * 20:10 UTC), así que se busca cada fotograma en los dos: primero en el que
+ * respondió la última vez, y el que no contesta se deja de lado un rato
+ * (DOWN_MS). Los ficheros de uno y otro tienen los mismos datos pero no los
+ * mismos bytes, así que la cabecera y los mosaicos de un fotograma salen
+ * siempre del mismo almacén.
  */
 const A = require('./analysis');
 const TIFF = require('./tiff');
 const { analyzeWith, LRU } = require('./radar');
 
 const BASE_URL = 'https://s3.waw3-1.cloudferro.com/openradar-24h';
+const BACKUP_URL = 'https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup';
+const BASE_URLS = [BASE_URL, BACKUP_URL];
+const DOWN_MS = 2 * 60000; // un almacén que no contesta se prueba el último durante este tiempo
 const STEP = 300;          // un fotograma cada 5 min
 const DELAY = 240;         // tarda ~4 min en publicarse
 const RETRY_MISSING = 45;  // s antes de volver a buscar un fotograma que aún no estaba
@@ -101,10 +113,13 @@ function frameTimes(latest) {
 }
 
 class OperaSource {
-  constructor({ fetch, baseUrl = BASE_URL, userAgent = '', log = () => {}, clutter = null }) {
+  /** baseUrls: almacenes con el mismo compuesto, en orden de preferencia (o baseUrl, uno solo). */
+  constructor({ fetch, baseUrl = null, baseUrls = BASE_URLS, userAgent = '', log = () => {}, clutter = null }) {
     this.id = 'opera';
     this.fetch = fetch;
-    this.base = baseUrl.replace(/\/+$/, '');
+    this.bases = (baseUrl ? [baseUrl] : baseUrls).map((b) => b.replace(/\/+$/, ''));
+    this.preferred = 0;        // almacén que respondió la última vez
+    this.down = new Map();     // almacén → ms hasta el que se prueba el último
     this.userAgent = userAgent;
     this.log = log;
     this.clutter = clutter;
@@ -122,14 +137,14 @@ class OperaSource {
     this.usualAt = 0;
   }
 
-  url(time) { return fileUrl(this.base, time); }
+  url(time, mirror = 0) { return fileUrl(this.bases[mirror], time); }
 
-  async range(time, start, end, retry = true) {
+  async range(time, start, end, mirror = 0, retry = true) {
     const headers = { Range: `bytes=${start}-${end}` };
     if (this.userAgent) headers['User-Agent'] = this.userAgent;
     let res, buf;
     try {
-      res = await this.fetch(this.url(time), { headers });
+      res = await this.fetch(this.url(time, mirror), { headers });
       if (res.status === 404 || res.status === 403) {
         const e = new Error('OPERA: fotograma no disponible');
         e.missing = true;
@@ -138,34 +153,78 @@ class OperaSource {
       if (!res.ok) throw new Error(`OPERA HTTP ${res.status}`);
       buf = new Uint8Array(await res.arrayBuffer());
     } catch (e) {
+      if (e.missing) { this.down.delete(mirror); throw e; }
       // Un corte de red o un fallo pasajero del servidor: una vez más, al poco.
-      if (e.missing || !retry) throw e;
+      if (!retry) {
+        this.down.set(mirror, Date.now() + DOWN_MS);
+        throw e;
+      }
       await new Promise((r) => setTimeout(r, 1000));
-      return this.range(time, start, end, false);
+      return this.range(time, start, end, mirror, false);
     }
+    this.down.delete(mirror);
     // Un servidor que no admite Range devuelve el fichero entero.
     return res.status === 206 ? buf : buf.subarray(start, end + 1);
   }
 
+  /** Almacenes en el orden en que se prueban: el último que respondió, los demás y, al final, los que no contestan. */
+  mirrorOrder() {
+    const now = Date.now();
+    const all = this.bases.map((_, i) => i);
+    const order = [this.preferred, ...all.filter((i) => i !== this.preferred)];
+    const up = order.filter((i) => !(this.down.get(i) > now));
+    return [...up, ...order.filter((i) => !up.includes(i))];
+  }
+
+  /**
+   * Cabecera de un fotograma, del primer almacén que lo tenga. Falla con
+   * e.missing si alguno contestó que no lo tiene (aún no se ha publicado) y
+   * ninguno lo dio; sin e.missing, si no contestó ninguno.
+   */
   header(time) {
     const key = String(time);
     let p = this.headers.get(key);
     if (!p) {
       p = (async () => {
-        for (let n = HEADER_BYTES; ;) {
-          const bytes = await this.range(time, 0, n - 1);
+        const order = this.mirrorOrder();
+        let missing = null, failure = null;
+        for (let i = 0; i < order.length; i++) {
+          const mirror = order[i];
           try {
-            return this.prepare(TIFF.parseHeader(bytes));
+            const h = await this.headerFrom(time, mirror, i === order.length - 1);
+            this.preferred = mirror;
+            return h;
           } catch (e) {
-            if (!(e instanceof TIFF.NeedMore) || bytes.length < n || n >= 1 << 20) throw e;
-            n = Math.ceil(e.bytes / HEADER_BYTES) * HEADER_BYTES;
+            if (e.missing) missing = e;
+            else { failure = e; this.log('opera', this.bases[mirror], e.message); }
           }
         }
+        throw missing || failure;
       })();
-      p.catch(() => this.headers.delete(key));
+      p.then((h) => { p.h = h; }, () => this.headers.delete(key));
       this.headers.set(key, p);
     }
     return p;
+  }
+
+  /** Cabecera de un fotograma en un almacén; solo se reintenta en el último que se prueba. */
+  async headerFrom(time, mirror, retry) {
+    for (let n = HEADER_BYTES; ;) {
+      const bytes = await this.range(time, 0, n - 1, mirror, retry);
+      try {
+        return { ...this.prepare(TIFF.parseHeader(bytes)), mirror };
+      } catch (e) {
+        if (!(e instanceof TIFF.NeedMore) || bytes.length < n || n >= 1 << 20) throw e;
+        n = Math.ceil(e.bytes / HEADER_BYTES) * HEADER_BYTES;
+      }
+    }
+  }
+
+  /** Un mosaico de este fotograma no llegó: la próxima vez se vuelve a buscar en todos los almacenes. */
+  forgetHeader(time, h) {
+    const key = String(time);
+    const p = this.headers.get(key);
+    if (p && p.h === h) this.headers.delete(key);
   }
 
   prepare(h) {
@@ -190,7 +249,8 @@ class OperaSource {
   }
 
   tile(time, h, level, k) {
-    const key = `${time}/${level}/${k}`;
+    // Del mismo almacén que la cabecera: las posiciones de los mosaicos cambian de uno a otro.
+    const key = `${time}/${h.mirror}/${level}/${k}`;
     const hit = this.tiles.get(key);
     if (hit) return Promise.resolve(hit);
     if (this.inflight.has(key)) return this.inflight.get(key);
@@ -199,7 +259,7 @@ class OperaSource {
       const off = ifd.tileOffsets[k], len = ifd.tileByteCounts[k];
       const n = ifd.tileWidth * ifd.tileHeight;
       if (!len) return new Uint8Array(n).fill(NODATA); // mosaico vacío
-      const f = await TIFF.decodeTile(ifd, await this.range(time, off, off + len - 1));
+      const f = await TIFF.decodeTile(ifd, await this.range(time, off, off + len - 1, h.mirror));
       const out = new Uint8Array(n);
       for (let i = 0; i < n; i++) out[i] = encode(f[i], ifd.nodata);
       return out;
@@ -224,6 +284,7 @@ class OperaSource {
       }
     }
     await Promise.all(jobs);
+    if (errors) this.forgetHeader(time, h);
     if (jobs.length && errors === jobs.length) throw last;
     const { width: W, height: H, tileWidth: tw, tileHeight: th, tilesAcross } = ifd;
     // Código del píxel (c, r) del nivel; NODATA fuera de la imagen o si falló el mosaico.
@@ -285,11 +346,14 @@ class OperaSource {
   async usuallyCovered(lat, lon) {
     if (!this.latest) return null;
     try {
-      const cov = await this.usual();
       const h = await this.header(this.latest);
-      if (h.geomKey !== cov.geomKey) return null;
       const p = this.toPixel(h, lat, lon);
-      return !!p && OperaSource.isUsual(cov, p.u, p.v);
+      // Fuera de la imagen del compuesto no hay radar nunca: no hace falta la cobertura habitual.
+      const top = h.levels[0];
+      if (!p || p.u < 0 || p.v < 0 || p.u >= top.width || p.v >= top.height) return false;
+      const cov = await this.usual();
+      if (h.geomKey !== cov.geomKey) return null;
+      return OperaSource.isUsual(cov, p.u, p.v);
     } catch (e) {
       return null;
     }
@@ -521,4 +585,4 @@ class OperaSource {
   }
 }
 
-module.exports = { OperaSource, laea, fileUrl, frameTimes, encode, dbzOf, BASE_URL, NONE, NODATA, STEP, DELAY, FILL_MAX };
+module.exports = { OperaSource, laea, fileUrl, frameTimes, encode, dbzOf, BASE_URL, BACKUP_URL, BASE_URLS, NONE, NODATA, STEP, DELAY, FILL_MAX };

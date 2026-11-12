@@ -102,7 +102,7 @@ La web incluye un aviso de privacidad (`privacidad.html`).
 
 ### Radar OPERA en la web: intermediario gratuito en Cloudflare
 
-La web usa el radar europeo **EUMETNET OPERA**, cuya licencia (CC BY 4.0) permite publicarlo y compartirlo con atribución, que la web y el widget ya muestran. El almacén de EUMETNET, en cambio, no deja que otras webs lean sus ficheros desde el navegador (falta la cabecera CORS). Por eso la web los pide a través de un pequeño *Worker* de Cloudflare, [`proxy/opera-worker.js`](proxy/opera-worker.js). El Worker solo reenvía los ficheros del compuesto OPERA, trozo a trozo, y guarda cada trozo en la caché de Cloudflare. Sin él, la web no se puede generar (`npm run build:web` lo pide).
+La web usa el radar europeo **EUMETNET OPERA**, cuya licencia (CC BY 4.0) permite publicarlo y compartirlo con atribución, que la web y el widget ya muestran. El almacén de EUMETNET, en cambio, no deja que otras webs lean sus ficheros desde el navegador (falta la cabecera CORS). Por eso la web los pide a través de un pequeño *Worker* de Cloudflare, [`proxy/opera-worker.js`](proxy/opera-worker.js). El Worker solo reenvía los ficheros del compuesto OPERA, trozo a trozo, y guarda cada trozo en la caché de Cloudflare. Lee del almacén principal y, con las direcciones que empiezan por `/backup/`, de su respaldo en ECMWF. Sin él, la web no se puede generar (`npm run build:web` lo pide). **Cada vez que cambie `proxy/opera-worker.js` hay que volver a desplegarlo** (paso 3), porque GitHub no lo publica.
 
 1. Crea una cuenta gratuita en [Cloudflare](https://dash.cloudflare.com/sign-up).
 2. En *Workers & Pages*, crea un Worker con la plantilla «Hello World», llámalo `chubasco-opera` y despliégalo.
@@ -179,7 +179,7 @@ test/          pruebas con datos sintéticos
 
 ## Datos y licencias
 
-- **Radar:** [EUMETNET OPERA](https://www.eumetnet.eu/), compuesto de reflectividad máxima, del [almacén de datos abiertos de EUMETNET](https://s3.waw3-1.cloudferro.com/openradar-24h/). Licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): se puede publicar y compartir, también con fines comerciales, citando la fuente y la licencia e indicando que los datos están transformados. El mapa lo indica así: «Radar EUMETNET OPERA (CC BY 4.0, datos procesados)».
+- **Radar:** [EUMETNET OPERA](https://www.eumetnet.eu/), compuesto de reflectividad máxima, del [almacén de datos abiertos de EUMETNET](https://s3.waw3-1.cloudferro.com/openradar-24h/) o, si ahí falta, de [su respaldo en ECMWF](https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup/). Licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): se puede publicar y compartir, también con fines comerciales, citando la fuente y la licencia e indicando que los datos están transformados. El mapa lo indica así: «Radar EUMETNET OPERA (CC BY 4.0, datos procesados)».
 - **Previsión y búsqueda:** [Open-Meteo](https://open-meteo.com/), gratis para uso no comercial.
 - **Nombres al hacer clic en el mapa:** Nominatim de OpenStreetMap.
 - **Embalses:** [MITECO, Boletín Hidrológico semanal](https://www.miteco.gob.es/es/agua/temas/evaluacion-de-los-recursos-hidricos/boletin-hidrologico.html) (base de datos BD-Embalses). Su aviso legal permite reutilizar la información sin autorización expresa citando la fuente (Ley 37/2007). Son datos sin validar de los embalses peninsulares de más de 5 hm³.

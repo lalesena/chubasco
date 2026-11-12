@@ -10,7 +10,7 @@
 const { protocol } = require('electron');
 const { PNG } = require('pngjs');
 const { operaFile } = require('./mock-opera');
-const { BASE_URL, DELAY } = require('./opera');
+const { BASE_URLS, DELAY } = require('./opera');
 
 const HOME = { lat: 40.4168, lon: -3.7038 };
 
@@ -47,7 +47,7 @@ function dbzAt(kmx, kmy, tMin) {
 }
 
 // Radar OPERA: el mismo frente de tormentas en la rejilla europea.
-const OPERA_HOST = new URL(BASE_URL).host;
+const OPERA_HOSTS = new Set(BASE_URLS.map((b) => new URL(b).host)); // el principal y su respaldo
 const operaFiles = new Map();
 function operaFor(time) {
   if (!operaFiles.has(time)) {
@@ -363,7 +363,7 @@ function forecast() {
 function install() {
   protocol.handle('https', async (req) => {
     const u = new URL(req.url);
-    if (u.host === OPERA_HOST) return operaResponse(req, u);
+    if (OPERA_HOSTS.has(u.host)) return operaResponse(req, u);
     if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/agua.json')) return json(aguaDemo());
     if (u.host.endsWith('.github.io') && u.pathname.endsWith('/agua/pluvio.json')) return json(pluvioDemo());
     const station = u.host.endsWith('.github.io') && /\/agua\/pluvio\/([0-9A-Z]+)\.json$/.exec(u.pathname);

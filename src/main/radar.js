@@ -99,7 +99,9 @@ async function analyzeWith(src, loc, { thresholdDbz, alarmRadiusKm, points = nul
   if (requireCoverage && !stats.atLocation.hasData && stats.missingFraction > 0.5) {
     // Fuera de la cobertura del radar (OPERA solo cubre Europa), o radares que
     // aquí suelen estar y llevan un rato sin llegar.
-    const usual = src.usuallyCovered ? await src.usuallyCovered(loc.lat, loc.lon) : null;
+    const usual = src.usuallyCovered ? await src.usuallyCovered(loc.lat, loc.lon) : false;
+    // Si no se sabe (no se pudo calcular la cobertura habitual), no se dice «aquí no hay radar».
+    if (usual === null) throw new Error('Faltan datos del radar en esta zona');
     const e = new Error(usual ? 'El radar de la zona no ha llegado' : 'Sin cobertura de radar');
     e.code = usual ? 'radarGap' : 'noCoverage';
     throw e;

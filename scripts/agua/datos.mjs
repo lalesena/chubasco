@@ -82,10 +82,10 @@ async function fetchOk(url, opts = {}, tries = 3) {
 // ---------------------------------------------------------------------------
 // Lluvia de una hora (la que termina en t), como función píxel → mm (NaN sin datos).
 
-function acrrUrl(bucket, t, ext) {
+function acrrUrl(base, t, ext) {
   const d = new Date(t * 1000);
   const Y = d.getUTCFullYear(), M = pad(d.getUTCMonth() + 1), D = pad(d.getUTCDate());
-  return `${S3}/${bucket}/${Y}/${M}/${D}/OPERA/COMP/OPERA@${Y}${M}${D}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}@0@ACRR.${ext}`;
+  return `${base}/${Y}/${M}/${D}/OPERA/COMP/OPERA@${Y}${M}${D}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}@0@ACRR.${ext}`;
 }
 
 async function rangeGet(url, start, end) {
@@ -96,11 +96,18 @@ async function rangeGet(url, start, end) {
   return res.status === 206 ? buf : buf.subarray(start, end + 1);
 }
 
-// Del GeoTIFF del almacén de 24 h: solo los mosaicos de la ventana.
+// Del GeoTIFF del almacén de 24 h: solo los mosaicos de la ventana. Primero
+// el principal y, si no lo tiene, su respaldo en ECMWF (a veces uno de los dos
+// deja de recibir datos durante horas); cabecera y mosaicos, del mismo.
+const ACRR_24H = [`${S3}/openradar-24h`, 'https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup'];
 async function hourFromTiff(t, win) {
-  const url = acrrUrl('openradar-24h', t, 'tiff');
-  const head = await rangeGet(url, 0, 32767);
-  if (!head) return null;
+  let url = null, head = null, failures = 0, last = null;
+  for (const base of ACRR_24H) {
+    url = acrrUrl(base, t, 'tiff');
+    try { head = await rangeGet(url, 0, 32767); } catch (e) { failures++; last = e; continue; }
+    if (head) break;
+  }
+  if (!head) { if (failures === ACRR_24H.length) throw last; return null; } // null: que lo intente el archivo
   const h = TIFF.parseHeader(head);
   const ifd = h.ifds[0];
   if (ifd.width !== GRID.width || ifd.height !== GRID.height || Math.round(h.geo.pixelX) !== GRID.size) throw new Error('Rejilla ACRR inesperada');
@@ -125,7 +132,7 @@ async function hourFromTiff(t, win) {
 
 // Del archivo (HDF5 de toda Europa).
 async function hourFromH5(t) {
-  const res = await fetchOk(acrrUrl('openradar-archive', t, 'h5'));
+  const res = await fetchOk(acrrUrl(`${S3}/openradar-archive`, t, 'h5'));
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const buf = await res.arrayBuffer();

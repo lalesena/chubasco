@@ -183,6 +183,113 @@ test('OPERA: una tesela con un mosaico que no llega falla (para reintentarla), n
   assert.ok(q.some((v) => v !== O.NODATA && O.dbzOf(v) >= 30));
 });
 
+// Dos almacenes: cada uno responde según su función (o lanza, si «no contesta»).
+const PRIMARY = new URL(O.BASE_URL).host, BACKUP = new URL(O.BACKUP_URL).host;
+function mirrors(handlers, log = []) {
+  return async (url, opts) => {
+    const host = new URL(url).host;
+    log.push({ host, range: opts.headers.Range });
+    return handlers[host](url, opts);
+  };
+}
+const notFound = async () => new Response('', { status: 404 });
+const unreachable = async () => { throw new TypeError('fetch failed'); };
+
+test('OPERA: si el almacén principal deja de publicar, se lee del respaldo de ECMWF', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  const log = [];
+  // Como el 11-11-2026: el principal sin fotogramas nuevos; el respaldo, al día.
+  const op = new O.OperaSource({ fetch: mirrors({ [PRIMARY]: notFound, [BACKUP]: fakeFetch() }, log) });
+  const maps = await op.getMaps();
+  assert.equal(maps.frames[maps.frames.length - 1].time, newest);
+  const r = await op.analyze({ id: 'a', name: 'Dentro', lat: 40.25, lon: -3.7 }, { thresholdDbz: 18, alarmRadiusKm: 20 });
+  assert.equal(r.atLocation.dbz, 40);
+  const q = await op.viewTile({ time: newest, z: 8, x: 125, y: 96 });
+  assert.ok(q.some((v) => v !== O.NODATA && O.dbzOf(v) >= 30));
+  // Una vez visto que el respaldo responde, se empieza por él: al principal solo se le pregunta
+  // por la primera cabecera, y nunca por un mosaico.
+  assert.equal(log.filter((x) => x.host === PRIMARY).length, 1, JSON.stringify(log.filter((x) => x.host === PRIMARY)));
+  assert.ok(log.filter((x) => x.host === BACKUP).length > 10);
+});
+
+test('OPERA: un almacén que no contesta se deja de lado y no corta la búsqueda', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  const log = [];
+  // El último fotograma aún no está en el respaldo y el principal no contesta: antes, eso dejaba sin radar.
+  const backup = byTime((t) => (t < newest ? file : null));
+  const op = new O.OperaSource({ fetch: mirrors({ [PRIMARY]: unreachable, [BACKUP]: backup }, log) });
+  const maps = await op.getMaps();
+  assert.equal(maps.frames[maps.frames.length - 1].time, newest - O.STEP, 'el anterior, del respaldo');
+  const primaryCalls = log.filter((x) => x.host === PRIMARY).length;
+  assert.equal(primaryCalls, 1, 'sin reintentar el principal: había otro almacén');
+  // Mientras tanto, el principal se prueba el último (y no hace esperar).
+  await op.analyze({ id: 'a', name: 'Dentro', lat: 40.25, lon: -3.7 }, { thresholdDbz: 18, alarmRadiusKm: 20 });
+  assert.equal(log.filter((x) => x.host === PRIMARY).length, primaryCalls);
+  // Ninguno contesta: error de conexión, no «fotograma no disponible».
+  const off = new O.OperaSource({ fetch: mirrors({ [PRIMARY]: unreachable, [BACKUP]: unreachable }) });
+  await assert.rejects(off.getMaps(), (e) => !e.missing && /fetch failed/.test(e.message));
+});
+
+test('OPERA: cabecera y mosaicos de un fotograma, del mismo almacén', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  const log = [];
+  let primaryTiles = true;
+  const primary = fakeFetch();
+  const op = new O.OperaSource({
+    fetch: mirrors({
+      // El principal da las cabeceras, pero sus mosaicos dejan de llegar.
+      [PRIMARY]: (url, opts) => (+/bytes=(\d+)-/.exec(opts.headers.Range)[1] >= 16384 && !primaryTiles ? new Response('', { status: 502 }) : primary(url, opts)),
+      [BACKUP]: fakeFetch()
+    }, log)
+  });
+  await op.getMaps();
+  primaryTiles = false;
+  await assert.rejects(op.viewTile({ time: newest, z: 8, x: 125, y: 96 }));
+  // La cabecera de ese fotograma se olvida: la siguiente vez sale entero del respaldo.
+  log.length = 0;
+  const q = await op.viewTile({ time: newest, z: 8, x: 125, y: 96 });
+  assert.ok(q.some((v) => v !== O.NODATA && O.dbzOf(v) >= 30));
+  const tiles = log.filter((x) => +/bytes=(\d+)-/.exec(x.range)[1] >= 16384);
+  assert.ok(tiles.length && tiles.every((x) => x.host === BACKUP), JSON.stringify(log));
+});
+
+test('OPERA: si no se sabe dónde suele haber radar, no dice «sin radar en esta zona»', async () => {
+  const newest = Math.floor((Date.now() / 1000 - O.DELAY) / O.STEP) * O.STEP;
+  // Solo la última media hora, y sin los radares de la zona: la cobertura habitual no se puede calcular.
+  const op = new O.OperaSource({ fetch: byTime((t) => (newest - t <= 1800 ? gapFile : null)) });
+  await op.getMaps();
+  const opts = { thresholdDbz: 18, alarmRadiusKm: 20 };
+  await assert.rejects(op.analyze({ id: 'a', name: 'Dentro', lat: 40.25, lon: -3.7 }, opts), (e) => !e.code && /Faltan datos/.test(e.message));
+  assert.equal(await op.usuallyCovered(40.25, -3.7), null);
+  // Fuera de la imagen del compuesto sí se sabe, sin la cobertura habitual.
+  assert.equal(await op.usuallyCovered(40.7, -74), false);
+  await assert.rejects(op.analyze({ id: 'c', name: 'Nueva York', lat: 40.7, lon: -74 }, opts), (e) => e.code === 'noCoverage');
+});
+
+test('Intermediario de Cloudflare: /backup/… se lee del respaldo de ECMWF', async () => {
+  const worker = (await import(pathToFileURL(path.join(__dirname, '../proxy/opera-worker.js')).href)).default;
+  globalThis.caches = { default: { async match() { return undefined; }, async put() {} } };
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, opts) => {
+    asked.push(url);
+    const r = /bytes=(\d+)-(\d+)/.exec(opts.headers.Range);
+    return new Response(file.read(+r[1], +r[2]), { status: 206, headers: { 'Content-Range': `bytes ${r[1]}-${r[2]}/${file.size}` } });
+  };
+  try {
+    const call = (p) => worker.fetch(new Request('https://proxy.example' + p, { headers: { Range: 'bytes=0-9', Origin: 'https://lalesena.github.io' } }), {}, { waitUntil() {} });
+    const p = '/2026/10/07/OPERA/COMP/OPERA@20261007T0850@0@DBZH.tiff';
+    assert.equal((await call('/backup' + p)).status, 206);
+    assert.equal((await call(p)).status, 206);
+    assert.deepEqual(asked, [O.BACKUP_URL + p, O.BASE_URL + p]);
+    assert.equal((await call('/otro' + p)).status, 404);
+    assert.equal((await call('/backup/../etc/passwd')).status, 404);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete globalThis.caches;
+  }
+});
+
 test('Intermediario de Cloudflare: solo OPERA, con rango, CORS para la web propia y caché', async () => {
   const worker = (await import(pathToFileURL(path.join(__dirname, '../proxy/opera-worker.js')).href)).default;
   const store = new Map();

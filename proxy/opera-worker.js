@@ -10,6 +10,12 @@
  * cambian una vez publicados, así que cada trozo se pide al origen una vez
  * por centro de datos.
  *
+ * EUMETNET publica el mismo compuesto en dos almacenes: el principal
+ * (CloudFerro) y un respaldo en ECMWF. /AAAA/MM/DD/… se lee del principal y
+ * /backup/AAAA/MM/DD/… del respaldo; la web elige (ver opera.js), porque los
+ * ficheros de uno y otro no tienen los mismos bytes y la cabecera y los
+ * mosaicos de un fotograma tienen que salir del mismo.
+ *
  * Solo atiende a las webs de ALLOWED_ORIGINS (variable del Worker, separadas
  * por comas; por defecto, la web de Chubasco) y a localhost para pruebas: así
  * otras webs, o copias de este repositorio, no gastan su cuota. Cada copia
@@ -17,8 +23,11 @@
  *
  * Despliegue: ver README (sección «Radar OPERA en la web»).
  */
-const UPSTREAM = 'https://s3.waw3-1.cloudferro.com/openradar-24h';
-const PATH = /^\/(\d{4})\/(\d{2})\/(\d{2})\/OPERA\/COMP\/OPERA@(\d{8})T(\d{4})@0@DBZH\.tiff$/;
+const UPSTREAMS = {
+  '': 'https://s3.waw3-1.cloudferro.com/openradar-24h',
+  backup: 'https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup'
+};
+const PATH = /^(?:\/(backup))?(\/(\d{4})\/(\d{2})\/(\d{2})\/OPERA\/COMP\/OPERA@(\d{8})T(\d{4})@0@DBZH\.tiff)$/;
 const RANGE = /^bytes=(\d{1,9})-(\d{1,9})$/;
 const MAX_BYTES = 4 << 20;
 const DEFAULT_ORIGINS = 'https://lalesena.github.io';
@@ -47,7 +56,8 @@ export default {
     if (request.method !== 'GET') return reply('Método no admitido', 405);
     const url = new URL(request.url);
     const m = PATH.exec(url.pathname);
-    if (!m || m[4] !== m[1] + m[2] + m[3]) return reply('No encontrado', 404);
+    if (!m || m[6] !== m[3] + m[4] + m[5]) return reply('No encontrado', 404);
+    const upstream = UPSTREAMS[m[1] || ''] + m[2];
     const r = RANGE.exec(request.headers.get('Range') || '');
     const start = r ? Number(r[1]) : -1, end = r ? Number(r[2]) : -1;
     if (!r || end < start || end - start + 1 > MAX_BYTES) return reply('Hace falta un rango de bytes', 416);
@@ -57,7 +67,7 @@ export default {
     const key = new Request(`${url.origin}${url.pathname}?bytes=${start}-${end}`);
     let hit = await cache.match(key);
     if (!hit) {
-      const up = await fetch(UPSTREAM + url.pathname, { headers: { Range: `bytes=${start}-${end}` } });
+      const up = await fetch(upstream, { headers: { Range: `bytes=${start}-${end}` } });
       if (up.status === 404 || up.status === 403) return reply('Aún no publicado', 404);
       if (up.status !== 206 && up.status !== 200) return reply('Error del origen', 502);
       let body, total = '*';

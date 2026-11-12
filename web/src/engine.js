@@ -13,7 +13,7 @@
  * página abierta.
  */
 const { StoreCore } = require('../../src/main/store');
-const { OperaSource, BASE_URL } = require('../../src/main/opera');
+const { OperaSource, BASE_URLS } = require('../../src/main/opera');
 const { WeatherSource } = require('../../src/main/weather');
 const { LightningSource } = require('../../src/main/lightning');
 const { Monitor } = require('../../src/main/monitor');
@@ -70,8 +70,9 @@ function createEngine({ initial, embed, open, locale, version, operaProxy, post 
   const getT = () => I18N.make(I18N.resolveLang(store.settings.language, locale));
 
   // Radar OPERA a través del intermediario: el almacén de EUMETNET no
-  // admite peticiones desde otras webs.
-  const radar = new OperaSource({ fetch: webFetch, baseUrl: operaProxy || BASE_URL, log });
+  // admite peticiones desde otras webs. Con /backup, del respaldo en ECMWF.
+  const proxy = operaProxy && operaProxy.replace(/\/+$/, '');
+  const radar = new OperaSource({ fetch: webFetch, baseUrls: proxy ? [proxy, `${proxy}/backup`] : BASE_URLS, log });
   const weather = new WeatherSource({ fetch: webFetch, userAgent: '', log });
   const lightning = new LightningSource({ fetch: webFetch, userAgent: '', log });
   let last = { statuses: {}, frames: null, error: null };
